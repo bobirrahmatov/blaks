@@ -1,11 +1,16 @@
 /**
  * Covenant Monitoring — application logic for Confluence
- * Load order in macro:
- *   1) covenants.js
- *   2) covenantsHTMLPage.js  (injects HTML into #globalRiskCovenants, then calls bootstrapCovenantsPage)
- * CSS:
- *   covenants-style.css (Tailwind utilities)
- *   covenants-page-style.css (page-specific styles)
+ *
+ * Macro order (must match):
+ *   <div id="globalRiskCovenants"></div>
+ *   apexcharts → xlsx → html2canvas
+ *   covenants-style.css → covenants-page-style.css
+ *   covenants.js  (this file)
+ *   covenantsHTMLPage.js  (injects HTML, then calls bootstrapCovenantsPage)
+ *
+ * Data:
+ *   Covenants → Confluence attachment Covenants_current.xlsx (page 3229979875)
+ *   Activity  → dummy (Deferred / Waived / Deleted)
  */
 // ===== COVENANTS-ONLY PAGE =====
       const COVENANTS_ONLY_PAGE = true;
@@ -803,47 +808,102 @@
         const data = [];
         const regions = ["NAM", "EMEA", "APAC", "LATAM"];
         const compliances = ["Deferred", "Waived", "Deleted", "Deactivated", "Compliant"];
+        const productPrograms = [
+          "Corporate Lending",
+          "Trade Finance",
+          "Working Capital",
+          "Project Finance",
+          "Real Estate",
+          "Asset Based Lending",
+          "Equipment Finance",
+          "Supply Chain Finance",
+        ];
+        const underwriters = [
+          "John Smith",
+          "Sarah Johnson",
+          "David Lee",
+          "Carlos Rodriguez",
+          "Robert Brown",
+          "Lisa Anderson",
+          "Mike Wilson",
+          "Emily Chen",
+          "Tom Harris",
+          "Anna Martinez",
+        ];
+
+        // When real covenants are loaded, seed activity from those relationships
+        // so Deferred filters stay aligned with Excel Product / Underwriter / Region.
+        const covSource =
+          (typeof covenantsData !== "undefined" &&
+            Array.isArray(covenantsData) &&
+            covenantsData.length &&
+            covenantsData) ||
+          (window.covenantsData && window.covenantsData.length
+            ? window.covenantsData
+            : null);
+
+        const seedRels = [];
+        if (covSource) {
+          const seen = new Set();
+          covSource.forEach((row) => {
+            const id = String(row.Relationship_ID || "").trim();
+            if (!id || seen.has(id)) return;
+            seen.add(id);
+            seedRels.push({
+              id,
+              name: String(row.Relationship_Name || "").trim() || id,
+              ca: String(row.CA_Number || "").trim(),
+              region: String(row.Region || "").trim() || regions[seedRels.length % 4],
+              product:
+                String(
+                  row.Product_Program_Name || row.Product_Program || ""
+                ).trim() || productPrograms[seedRels.length % 8],
+              uw:
+                String(row.Lead_Underwriter || row.Underwriter || "").trim() ||
+                underwriters[seedRels.length % 10],
+              team:
+                String(
+                  row.Underwriting_Team_Lead || row.Team_Lead || ""
+                ).trim() || underwriters[(seedRels.length + 2) % 10],
+            });
+          });
+        }
+
         const now = new Date();
-        for (let i = 0; i < 420; i++) {
+        const count = 420;
+        for (let i = 0; i < count; i++) {
           const monthOffset = i % 3; // last 3 months
           const d = new Date(now.getFullYear(), now.getMonth() - monthOffset, 5 + (i % 20));
           const compliance = compliances[i % compliances.length];
-          // Bias toward Deferred/Waived/Deleted for chart visibility
           const forced =
             i % 7 === 0 ? "Deferred" : i % 7 === 1 ? "Waived" : i % 11 === 0 ? "Deleted" : compliance;
-          const relNum = (i % 50) + 1;
-          const productPrograms = [
-            "Corporate Lending",
-            "Trade Finance",
-            "Working Capital",
-            "Project Finance",
-            "Real Estate",
-            "Asset Based Lending",
-            "Equipment Finance",
-            "Supply Chain Finance",
-          ];
-          const underwriters = [
-            "John Smith",
-            "Sarah Johnson",
-            "David Lee",
-            "Carlos Rodriguez",
-            "Robert Brown",
-            "Lisa Anderson",
-            "Mike Wilson",
-            "Emily Chen",
-            "Tom Harris",
-            "Anna Martinez",
-          ];
+
+          let rel;
+          if (seedRels.length) {
+            rel = seedRels[i % seedRels.length];
+          } else {
+            const relNum = (i % 50) + 1;
+            rel = {
+              id: "REL" + String(relNum).padStart(3, "0"),
+              name: `${regions[i % regions.length]} Company ${relNum}`,
+              ca: "CA2024" + String(relNum).padStart(3, "0"),
+              region: regions[i % regions.length],
+              product: productPrograms[i % productPrograms.length],
+              uw: underwriters[i % underwriters.length],
+              team: underwriters[(i + 2) % underwriters.length],
+            };
+          }
+
           data.push({
             "Maker Date": d.toISOString().split("T")[0],
-            Region: regions[i % regions.length],
-            "Relationship ID": "REL" + String(relNum).padStart(3, "0"),
-            "Relationship Name": `${regions[i % regions.length]} Company ${relNum}`,
-            "CA Number": "CA2024" + String(relNum).padStart(3, "0"),
+            Region: rel.region,
+            "Relationship ID": rel.id,
+            "Relationship Name": rel.name,
+            "CA Number": rel.ca || "CA" + String(i).padStart(5, "0"),
             "Covenant Number": "COV-ACT-" + i,
-            "Product_Program_Name": productPrograms[i % productPrograms.length],
-            "Lead_Underwriter": underwriters[i % underwriters.length],
-            "Underwriting_Team_Lead": underwriters[(i + 2) % underwriters.length],
+            Product_Program_Name: rel.product,
+            Lead_Underwriter: rel.uw,
+            Underwriting_Team_Lead: rel.team,
             "Covenant Compliance": forced,
             "Modified in Reporting Month": "YES",
             "As of Date": d.toISOString().split("T")[0],
@@ -1851,9 +1911,11 @@
         "Unallocated",
       ];
 
-      // ===== DUMMY DATA FOR TESTING =====
-      // Uncomment this section to test with dummy data without loading from Confluence
-      const ENABLE_DUMMY_DATA = true; // Set to false to use real data from Confluence
+      // ===== DATA MODE =====
+      // Covenants: load from Confluence (Covenants_current.xlsx)
+      // Activity (Deferred/Waived/Deleted): keep dummy locally
+      const ENABLE_DUMMY_DATA = false; // false = covenants from Confluence
+      const ENABLE_DUMMY_ACTIVITY = true; // true = activity stays dummy
 
       if (ENABLE_DUMMY_DATA) {
         // Generate comprehensive dummy data for testing
@@ -2764,7 +2826,21 @@
           });
         }
 
-        // Dummy or Confluence load (covenants-only)
+        // Always seed dummy activity when enabled (Deferred / Waived / Deleted)
+        if (
+          ENABLE_DUMMY_ACTIVITY &&
+          typeof generateDummyCovenantActivityData === "function"
+        ) {
+          covenantsActivityData = generateDummyCovenantActivityData();
+          window.covenantsActivityData = covenantsActivityData;
+          console.log(
+            "✅ Using dummy covenant activity:",
+            covenantsActivityData.length,
+            "records"
+          );
+        }
+
+        // Covenants: dummy only when ENABLE_DUMMY_DATA; otherwise Confluence
         if (ENABLE_DUMMY_DATA && covenantsData && covenantsData.length > 0) {
           console.log("DUMMY DATA MODE - Using covenant test data");
           setTimeout(() => {
@@ -2838,32 +2914,31 @@
 
         try {
           showLoadingOverlay("Fetching covenant records...");
-          const covenantDataPromise = fetchCovenantsFromConfluence();
-          const covenantActivityPromise = fetchCovenantsActivityFromConfluence().catch((err) => {
-            console.warn("Covenant activity file unavailable:", err.message || err);
-            return [];
-          });
-
-          const covenantResult = await covenantDataPromise;
+          const covenantResult = await fetchCovenantsFromConfluence();
           if (covenantResult && covenantResult.length > 0) {
             covenantsData = covenantResult;
             window.covenantsData = covenantResult;
-            console.log(`Loaded ${covenantResult.length} covenant records`);
+            console.log(`Loaded ${covenantResult.length} covenant records from Confluence`);
           } else {
             console.warn(`No covenant data loaded from ${CONFLUENCE_COVENANTS_FILE}`);
             covenantsData = [];
             window.covenantsData = [];
           }
 
-          try {
-            const covenantActivityResult = await covenantActivityPromise;
-            covenantsActivityData = Array.isArray(covenantActivityResult)
-              ? covenantActivityResult
-              : [];
+          // Activity stays dummy (Deferred / Waived / Deleted charts)
+          if (
+            ENABLE_DUMMY_ACTIVITY &&
+            typeof generateDummyCovenantActivityData === "function"
+          ) {
+            covenantsActivityData = generateDummyCovenantActivityData();
             window.covenantsActivityData = covenantsActivityData;
-            console.log(`Loaded ${covenantsActivityData.length} covenant activity records`);
-          } catch (activityErr) {
-            console.warn("Covenant activity load failed:", activityErr);
+            console.log(
+              `Using ${covenantsActivityData.length} dummy covenant activity records`
+            );
+          } else if (
+            !covenantsActivityData ||
+            !covenantsActivityData.length
+          ) {
             covenantsActivityData = [];
             window.covenantsActivityData = [];
           }
@@ -2986,9 +3061,10 @@ async function parseCovenantExcelBlob(blob) {
                 workbook.SheetNames[0]
               );
 
-              // Convert sheet to JSON
+              // Convert sheet to JSON (headers match Confluence covenants file columns)
               const jsonData = XLSX.utils.sheet_to_json(firstSheet, {
                 raw: false,
+                defval: "",
                 dateNF: "yyyy-mm-dd",
               });
 
@@ -2996,20 +3072,19 @@ async function parseCovenantExcelBlob(blob) {
                 `📊 Total covenant rows in Excel: ${jsonData.length}`
               );
 
-              // Don't filter by Facility_ID - covenants might use different key fields
-              // Filter out completely empty rows
-              const filteredData = jsonData.filter((row) => {
-                // Keep row if it has any non-empty values
-                return Object.values(row).some(
-                  (val) => val !== null && val !== undefined && val !== ""
-                );
-              });
+              // Filter empty rows, then normalize to internal field names
+              const filteredData = jsonData
+                .filter((row) =>
+                  Object.values(row).some(
+                    (val) => val !== null && val !== undefined && String(val).trim() !== ""
+                  )
+                )
+                .map((row) => normalizeCovenantRecord(row));
 
               console.log(
                 `✅ Parsed ${filteredData.length} valid covenant records from Excel`
               );
 
-              // Log data structure for debugging
               if (filteredData.length > 0) {
                 console.log(
                   "📋 Covenant record fields:",
@@ -3036,6 +3111,225 @@ async function parseCovenantExcelBlob(blob) {
           };
           reader.readAsArrayBuffer(blob);
         });
+      }
+
+      // Map Confluence covenants Excel columns → internal keys used by charts/filters.
+      // Expected columns (Sheet1):
+      // As Of Date, Region, Product_Program, Originating Unit, Underwriting Team Lead,
+      // Underwriter, Product Underwriter, OU Expense Code, CU Expense Code,
+      // Relationship ID, Relationship Name, Borrowers Name, CA Number, Facility Number,
+      // Product Program Name, Facility Type, Covenant Number, Periodicity / Frequency,
+      // Covenant Due Date, Covenant Deferred Date, No of Days Past Due,
+      // Coming Due / Past Due, Past Due Category, Covenant Description, Covenant Remarks,
+      // 45 Days Past Due Date, Control Unit
+      function covenantHeaderKey(name) {
+        return String(name || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "");
+      }
+
+      function pickCovenantField(row, candidates) {
+        if (!row) return "";
+        // Exact key first
+        for (const name of candidates) {
+          if (row[name] != null && String(row[name]).trim() !== "") {
+            return row[name];
+          }
+        }
+        // Fuzzy match (spaces / underscores / slashes)
+        const wanted = candidates.map(covenantHeaderKey);
+        for (const key of Object.keys(row)) {
+          const norm = covenantHeaderKey(key);
+          if (wanted.includes(norm) && row[key] != null && String(row[key]).trim() !== "") {
+            return row[key];
+          }
+        }
+        return "";
+      }
+
+      function normalizeCovenantRecord(row) {
+        const asOf = pickCovenantField(row, [
+          "As Of Date",
+          "As_Of_Date",
+          "Report_Date",
+          "Report Date",
+        ]);
+        const productProgramName = pickCovenantField(row, [
+          "Product Program Name",
+          "Product_Program_Name",
+        ]);
+        const productProgram = pickCovenantField(row, [
+          "Product_Program",
+          "Product Program",
+        ]);
+        const resolvedProduct = productProgramName || productProgram;
+        const underwriter = pickCovenantField(row, [
+          "Underwriter",
+          "Lead_Underwriter",
+          "Lead Underwriter",
+        ]);
+        const daysRaw = pickCovenantField(row, [
+          "No of Days Past Due",
+          "No_of_Days_Past_Due",
+          "Days_Past_Due",
+          "Days Past Due",
+        ]);
+        const daysPastDueNum = Number(String(daysRaw).replace(/[^0-9.-]/g, ""));
+        const daysPastDue = Number.isFinite(daysPastDueNum) ? daysPastDueNum : 0;
+
+        let comingDuePastDue = String(
+          pickCovenantField(row, [
+            "Coming Due / Past Due",
+            "Coming_Due_Past_Due",
+            "Coming Due Past Due",
+          ]) || ""
+        ).trim();
+        const statusLower = comingDuePastDue.toLowerCase();
+        if (statusLower.includes("past")) comingDuePastDue = "Past Due";
+        else if (statusLower.includes("coming") || statusLower.includes("due"))
+          comingDuePastDue = "Coming Due";
+        else if (daysPastDue > 0) comingDuePastDue = "Past Due";
+
+        let pastDueCategory = String(
+          pickCovenantField(row, [
+            "Past Due Category",
+            "Past_Due_Category",
+          ]) || ""
+        ).trim();
+        // Normalize common variants → buckets used by monitoring charts
+        const catLower = pastDueCategory.toLowerCase().replace(/\s+/g, " ");
+        if (
+          catLower.includes(">90") ||
+          catLower.includes("90+") ||
+          catLower.includes("over 90")
+        ) {
+          pastDueCategory = ">90 Days";
+        } else if (
+          catLower.includes("61") ||
+          catLower.includes("61-90") ||
+          catLower.includes("60-90")
+        ) {
+          pastDueCategory = "61-90 Days";
+        } else if (
+          catLower.includes("46") ||
+          catLower.includes("46-60") ||
+          catLower.includes("45-60")
+        ) {
+          pastDueCategory = "46-60 Days";
+        } else if (catLower.includes("31") || catLower.includes("31-45")) {
+          pastDueCategory = "31-45 Days";
+        } else if (
+          catLower.includes("0-30") ||
+          catLower.includes("1-30") ||
+          catLower.includes("1-45") ||
+          catLower.includes("0-45")
+        ) {
+          pastDueCategory =
+            catLower.includes("1-45") || catLower.includes("0-45")
+              ? "1-45 Days"
+              : "0-30 Days";
+        } else if (comingDuePastDue === "Past Due" && daysPastDue > 0) {
+          if (daysPastDue > 90) pastDueCategory = ">90 Days";
+          else if (daysPastDue > 60) pastDueCategory = "61-90 Days";
+          else if (daysPastDue > 45) pastDueCategory = "46-60 Days";
+          else if (daysPastDue > 30) pastDueCategory = "31-45 Days";
+          else pastDueCategory = "0-30 Days";
+        }
+
+        const frequency = pickCovenantField(row, [
+          "Periodicity / Frequency",
+          "Periodic_Frequency",
+          "Periodicity",
+          "Frequency",
+        ]);
+
+        return {
+          Report_Date: asOf,
+          As_Of_Date: asOf,
+          Region: pickCovenantField(row, ["Region"]),
+          Product_Program: productProgram || resolvedProduct,
+          Product_Program_Name: resolvedProduct,
+          Origination_Unit: pickCovenantField(row, [
+            "Originating Unit",
+            "Origination_Unit",
+            "Origination Unit",
+          ]),
+          Underwriting_Team_Lead: pickCovenantField(row, [
+            "Underwriting Team Lead",
+            "Underwriting_Team_Lead",
+            "Team_Lead",
+            "Team Lead",
+          ]),
+          Lead_Underwriter: underwriter,
+          Underwriter: underwriter,
+          Product_Underwriter: pickCovenantField(row, [
+            "Product Underwriter",
+            "Product_Underwriter",
+          ]),
+          OU_Expense_Code: pickCovenantField(row, [
+            "OU Expense Code",
+            "OU_Expense_Code",
+          ]),
+          CU_Expense_Code: pickCovenantField(row, [
+            "CU Expense Code",
+            "CU_Expense_Code",
+          ]),
+          Relationship_ID: pickCovenantField(row, [
+            "Relationship ID",
+            "Relationship_ID",
+          ]),
+          Relationship_Name: pickCovenantField(row, [
+            "Relationship Name",
+            "Relationship_Name",
+          ]),
+          Borrowers_Name: pickCovenantField(row, [
+            "Borrowers Name",
+            "Borrowers_Name",
+            "Borrower Name",
+          ]),
+          CA_Number: pickCovenantField(row, ["CA Number", "CA_Number"]),
+          Facility_Number: pickCovenantField(row, [
+            "Facility Number",
+            "Facility_Number",
+          ]),
+          Facility_Type: pickCovenantField(row, [
+            "Facility Type",
+            "Facility_Type",
+          ]),
+          Covenant_Number: pickCovenantField(row, [
+            "Covenant Number",
+            "Covenant_Number",
+          ]),
+          Periodic_Frequency: frequency,
+          Covenant_Due_Date: pickCovenantField(row, [
+            "Covenant Due Date",
+            "Covenant_Due_Date",
+          ]),
+          Covenant_Deferred_Date: pickCovenantField(row, [
+            "Covenant Deferred Date",
+            "Covenant_Deferred_Date",
+          ]),
+          Days_Past_Due: daysPastDue,
+          Coming_Due_Past_Due: comingDuePastDue,
+          Past_Due_Category: pastDueCategory,
+          Covenant_Description: pickCovenantField(row, [
+            "Covenant Description",
+            "Covenant_Description",
+          ]),
+          Covenant_Remarks: pickCovenantField(row, [
+            "Covenant Remarks",
+            "Covenant_Remarks",
+          ]),
+          "45_Days_Past_Due_Date": pickCovenantField(row, [
+            "45 Days Past Due Date",
+            "45_Days_Past_Due_Date",
+          ]),
+          Control_Unit: pickCovenantField(row, [
+            "Control Unit",
+            "Control_Unit",
+          ]),
+        };
       }
 
 async function fetchCovenantsFromConfluence() {
@@ -4468,7 +4762,9 @@ async function fetchCovenantsFromConfluence() {
         // Get unique underwriters
         const underwriters = [
           ...new Set(
-            getFilterSourceData().map((row) => row.Lead_Underwriter).filter(Boolean)
+            getFilterSourceData()
+              .map((row) => row.Lead_Underwriter || row.Underwriter)
+              .filter(Boolean)
           ),
         ].sort();
         
@@ -6187,7 +6483,9 @@ async function fetchCovenantsFromConfluence() {
         ) {
           const uws = selectedUnderwriters.map((u) => String(u).toLowerCase());
           filtered = filtered.filter((row) =>
-            uws.includes(String(row.Lead_Underwriter || "").toLowerCase())
+            uws.includes(
+              String(row.Lead_Underwriter || row.Underwriter || "").toLowerCase()
+            )
           );
         }
 
@@ -6234,15 +6532,37 @@ async function fetchCovenantsFromConfluence() {
       }
 
 
+
+// Expose handlers for inline onclick= in covenantsHTMLPage.js (Confluence)
+if (typeof loadDataFromCSV === "function") window.loadDataFromCSV = loadDataFromCSV;
+if (typeof resetAllFilters === "function") window.resetAllFilters = resetAllFilters;
+if (typeof toggleUiMenu === "function") window.toggleUiMenu = toggleUiMenu;
+if (typeof exportToExcel === "function") window.exportToExcel = exportToExcel;
+if (typeof exportToPDF === "function") window.exportToPDF = exportToPDF;
+if (typeof toggleTopFilter === "function") window.toggleTopFilter = toggleTopFilter;
+if (typeof toggleFilterItem === "function") window.toggleFilterItem = toggleFilterItem;
+if (typeof applyTopFilter === "function") window.applyTopFilter = applyTopFilter;
+if (typeof clearTopFilter === "function") window.clearTopFilter = clearTopFilter;
+if (typeof removeFilter === "function") window.removeFilter = removeFilter;
+if (typeof applyFilters === "function") window.applyFilters = applyFilters;
+if (typeof setActiveInGroup === "function") window.setActiveInGroup = setActiveInGroup;
+if (typeof updateCovenantChart === "function") window.updateCovenantChart = updateCovenantChart;
+if (typeof updateCovenantActivityView === "function") window.updateCovenantActivityView = updateCovenantActivityView;
+if (typeof filterCovenantDetailsTable === "function") window.filterCovenantDetailsTable = filterCovenantDetailsTable;
+if (typeof changeCovenantDetailsTablePage === "function") window.changeCovenantDetailsTablePage = changeCovenantDetailsTablePage;
+if (typeof updateCovenantDetailsTablePerPage === "function") window.updateCovenantDetailsTablePerPage = updateCovenantDetailsTablePerPage;
+if (typeof handleMainSearch === "function") window.handleMainSearch = handleMainSearch;
+if (typeof refreshData === "function") window.refreshData = refreshData;
+if (typeof showLoadingOverlay === "function") window.showLoadingOverlay = showLoadingOverlay;
+if (typeof hideLoadingOverlay === "function") window.hideLoadingOverlay = hideLoadingOverlay;
+
 // Confluence bootstrap: HTMLPage.js calls this after injecting markup.
-// Also auto-run if HTML was already injected, or on DOM ready for local testing.
 (function () {
   function runWhenReady() {
     if (typeof window.bootstrapCovenantsPage !== "function") return;
     if (!document.getElementById("globalRiskCovenants") && !document.getElementById("loadingOverlay")) {
       return;
     }
-    // Prefer host content present
     var host = document.getElementById("globalRiskCovenants");
     if (host && !host.innerHTML.trim() && !document.getElementById("loadingOverlay")) {
       return;
@@ -6256,14 +6576,12 @@ async function fetchCovenantsFromConfluence() {
     runWhenReady();
   } else if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", function () {
-      // Local full-page HTML testing (markup already in body)
       if (document.getElementById("loadingOverlay") && !window.__covenantsBootstrapped) {
         window.__covenantsBootstrapped = true;
         window.bootstrapCovenantsPage();
       }
     });
   } else if (document.getElementById("loadingOverlay") && !document.getElementById("globalRiskCovenants")) {
-    // Standalone local file without Confluence host
     window.__covenantsBootstrapped = true;
     window.bootstrapCovenantsPage();
   }
