@@ -284,51 +284,83 @@
         return name;
       }
 
+      function normalizeComingDuePastDueStatus(raw) {
+        // Exact match only against Excel "Coming Due / Past Due" values
+        const s = String(raw || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[_-]+/g, " ")
+          .replace(/\s+/g, " ");
+        if (s === "past due" || s === "pastdue") return "Past Due";
+        if (s === "coming due" || s === "comingdue") return "Coming Due";
+        return ""; // unknown / blank — do not invent status
+      }
+
+      function normalizePastDueCategoryValue(raw) {
+        const s = String(raw || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ");
+        if (!s) return "";
+        if (
+          s === ">90 days" ||
+          s === "> 90 days" ||
+          s === "90+ days" ||
+          s === "over 90 days"
+        ) {
+          return ">90 Days";
+        }
+        if (s === "61-90 days" || s === "61 to 90 days") return "61-90 Days";
+        if (s === "46-60 days" || s === "46 to 60 days") return "46-60 Days";
+        if (s === "31-45 days" || s === "31 to 45 days") return "31-45 Days";
+        if (s === "0-30 days" || s === "1-30 days" || s === "0 to 30 days")
+          return "0-30 Days";
+        if (s === "1-45 days" || s === "0-45 days") return "1-45 Days";
+        return String(raw || "").trim(); // keep original if unknown
+      }
+
       function isCovenantPastDue(row) {
         return (
-          String((row && row.Coming_Due_Past_Due) || "")
-            .trim()
-            .toLowerCase() === "past due"
+          normalizeComingDuePastDueStatus(row && row.Coming_Due_Past_Due) ===
+          "Past Due"
         );
       }
 
       function isCovenantComingDue(row) {
-        // Trust Excel "Coming Due / Past Due" column (do not re-filter by today's date)
         return (
-          String((row && row.Coming_Due_Past_Due) || "")
-            .trim()
-            .toLowerCase() === "coming due"
+          normalizeComingDuePastDueStatus(row && row.Coming_Due_Past_Due) ===
+          "Coming Due"
         );
       }
 
       function updateCovenantTopMetrics() {
-        const pastDue =
-          (currentCovenantData.pastDue &&
-            (currentCovenantData.pastDue.totalAll ??
-              currentCovenantData.pastDue.count)) ||
-          0;
-        const comingDue =
-          (currentCovenantData.comingDue &&
-            currentCovenantData.comingDue.count) ||
-          0;
+        // Cards are counted directly from the filtered Excel rows (single source of truth)
+        const dataSource =
+          typeof getCovenantPageDataSource === "function"
+            ? getCovenantPageDataSource() || []
+            : [];
+
+        let pastDue = 0;
+        let comingDue = 0;
+        const rels = new Set();
+
+        dataSource.forEach((row) => {
+          if (isCovenantPastDue(row)) pastDue++;
+          else if (isCovenantComingDue(row)) comingDue++;
+
+          const key = getCovenantRelationshipKey(row);
+          if (key) rels.add(key);
+        });
+
+        const totalActive = dataSource.length; // Total Active = all rows in filtered file
+
         const pastEl = document.getElementById("covMetricPastDue");
         const comingEl = document.getElementById("covMetricComingDue");
         const totalEl = document.getElementById("covMetricTotal");
         const relEl = document.getElementById("covMetricRelationships");
         if (pastEl) pastEl.textContent = pastDue.toLocaleString();
         if (comingEl) comingEl.textContent = comingDue.toLocaleString();
-        if (totalEl) totalEl.textContent = (pastDue + comingDue).toLocaleString();
-
-        // Relationships = unique Relationship_ID across the entire filtered covenants file
-        const dataSource =
-          typeof getCovenantPageDataSource === "function"
-            ? getCovenantPageDataSource() || []
-            : [];
-        const rels = new Set();
-        dataSource.forEach((row) => {
-          const key = getCovenantRelationshipKey(row);
-          if (key) rels.add(key);
-        });
+        if (totalEl) totalEl.textContent = totalActive.toLocaleString();
         if (relEl) relEl.textContent = rels.size.toLocaleString();
       }
 
@@ -1557,12 +1589,7 @@
           typeof getCovenantPageDataSource === "function"
             ? getCovenantPageDataSource()
             : covenantsData || [];
-        return (raw || []).filter((row) => {
-          const status = String(row.Coming_Due_Past_Due || "")
-            .trim()
-            .toLowerCase();
-          return status === "past due";
-        });
+        return (raw || []).filter((row) => isCovenantPastDue(row));
       }
 
       function destroyInsightChart(key) {
@@ -1592,21 +1619,19 @@
           const category = String(row.Past_Due_Category || "").trim();
           const days = Number(row.Days_Past_Due) || 0;
 
-          if (category === ">90 Days" || category === "90+ Days" || days > 90) {
+          if (category === ">90 Days" || category === "90+ Days") {
             regionalAgingData[region][">90"]++;
-          } else if (category === "61-90 Days" || (days > 60 && days <= 90)) {
+          } else if (category === "61-90 Days") {
             regionalAgingData[region]["61-90"]++;
-          } else if (category === "46-60 Days" || (days > 45 && days <= 60)) {
+          } else if (category === "46-60 Days") {
             regionalAgingData[region]["46-60"]++;
-          } else if (category === "31-45 Days" || (days > 30 && days <= 45)) {
+          } else if (category === "31-45 Days") {
             regionalAgingData[region]["31-45"]++;
           } else if (
             category === "0-30 Days" ||
             category === "1-30 Days" ||
-            category === "1-45 Days" ||
-            days > 0
+            category === "1-45 Days"
           ) {
-            // 1-45 Days bucket in dummy/legacy maps into 1-30 for stacked 1-45 display
             if (category === "1-45 Days" && days > 30) {
               regionalAgingData[region]["31-45"]++;
             } else {
@@ -3140,6 +3165,16 @@ async function parseCovenantExcelBlob(blob) {
                   Object.keys(filteredData[0])
                 );
                 console.log("📋 Sample covenant record:", filteredData[0]);
+                const statusCounts = {};
+                const catCounts = {};
+                filteredData.forEach((r) => {
+                  const s = r.Coming_Due_Past_Due || "(blank)";
+                  const c = r.Past_Due_Category || "(blank)";
+                  statusCounts[s] = (statusCounts[s] || 0) + 1;
+                  if (s === "Past Due") catCounts[c] = (catCounts[c] || 0) + 1;
+                });
+                console.log("📋 Coming Due / Past Due value counts:", statusCounts);
+                console.log("📋 Past Due Category counts (Past Due rows only):", catCounts);
               }
 
               resolve(filteredData);
@@ -3228,59 +3263,22 @@ async function parseCovenantExcelBlob(blob) {
         const daysPastDueNum = Number(String(daysRaw).replace(/[^0-9.-]/g, ""));
         const daysPastDue = Number.isFinite(daysPastDueNum) ? daysPastDueNum : 0;
 
-        let comingDuePastDue = String(
+        let comingDuePastDue = normalizeComingDuePastDueStatus(
           pickCovenantField(row, [
             "Coming Due / Past Due",
             "Coming_Due_Past_Due",
             "Coming Due Past Due",
-          ]) || ""
-        ).trim();
-        const statusLower = comingDuePastDue.toLowerCase();
-        // Trust Excel status; only light normalize. Do not invent Past Due from days alone
-        // when status is blank — that inflated Past Due / >90 counts.
-        if (statusLower.includes("past") || statusLower.includes("overdue")) {
-          comingDuePastDue = "Past Due";
-        } else if (statusLower.includes("coming")) {
-          comingDuePastDue = "Coming Due";
-        } else {
-          comingDuePastDue = comingDuePastDue; // keep raw; charts require exact Past Due / Coming Due
-        }
+          ])
+        );
 
-        let pastDueCategory = String(
+        let pastDueCategory = normalizePastDueCategoryValue(
           pickCovenantField(row, [
             "Past Due Category",
             "Past_Due_Category",
-          ]) || ""
-        ).trim();
-        // Light normalize only — keep Excel buckets; do not remap by fuzzy "includes"
-        const catNorm = pastDueCategory.toLowerCase().replace(/\s+/g, " ").trim();
-        if (
-          catNorm === ">90 days" ||
-          catNorm === "90+ days" ||
-          catNorm === "over 90 days" ||
-          catNorm === "> 90 days"
-        ) {
-          pastDueCategory = ">90 Days";
-        } else if (catNorm === "61-90 days" || catNorm === "61 to 90 days") {
-          pastDueCategory = "61-90 Days";
-        } else if (catNorm === "46-60 days" || catNorm === "46 to 60 days") {
-          pastDueCategory = "46-60 Days";
-        } else if (catNorm === "31-45 days" || catNorm === "31 to 45 days") {
-          pastDueCategory = "31-45 Days";
-        } else if (
-          catNorm === "0-30 days" ||
-          catNorm === "1-30 days" ||
-          catNorm === "0 to 30 days"
-        ) {
-          pastDueCategory = "0-30 Days";
-        } else if (catNorm === "1-45 days" || catNorm === "0-45 days") {
-          pastDueCategory = "1-45 Days";
-        } else if (
-          comingDuePastDue === "Past Due" &&
-          !pastDueCategory &&
-          daysPastDue > 0
-        ) {
-          // Only derive category when Excel left it blank on a Past Due row
+          ])
+        );
+        // Derive category from days ONLY when Past Due and category is blank
+        if (comingDuePastDue === "Past Due" && !pastDueCategory && daysPastDue > 0) {
           if (daysPastDue > 90) pastDueCategory = ">90 Days";
           else if (daysPastDue > 60) pastDueCategory = "61-90 Days";
           else if (daysPastDue > 45) pastDueCategory = "46-60 Days";
@@ -5394,16 +5392,14 @@ async function fetchCovenantsFromConfluence() {
         let comingDueTotal = 0;
 
         dataSource.forEach((row) => {
-          // Use exact field names from dataLoader export
-          const status = String(row.Coming_Due_Past_Due || "")
-            .trim()
-            .toLowerCase();
-          const pastDueCategory = String(row.Past_Due_Category || "").trim();
+          const status = normalizeComingDuePastDueStatus(row.Coming_Due_Past_Due);
+          const pastDueCategory = normalizePastDueCategoryValue(
+            row.Past_Due_Category
+          );
           const region = String(row.Region || "")
             .trim()
             .toUpperCase();
 
-          // Apply region filter only for legacy single-select (multi already applied in getCovenantPageDataSource)
           if (
             selectedRegion &&
             selectedRegion !== "all" &&
@@ -5412,22 +5408,21 @@ async function fetchCovenantsFromConfluence() {
           )
             return;
 
-          // Process Past Due covenants using Coming_Due_Past_Due and Past_Due_Category from dataLoader
-          if (status === "past due") {
+          // Past Due — exact Excel "Coming Due / Past Due"
+          if (status === "Past Due") {
             pastDueTotalAll++;
 
-            // Debug: Log first few past due records to see actual category values
             if (pastDueTotalAll <= 3) {
-              console.log(`DEBUG Past Due Record ${pastDueTotalAll}:`, {
+              console.log("DEBUG Past Due Record", pastDueTotalAll, {
                 status: row.Coming_Due_Past_Due,
                 category: row.Past_Due_Category,
-                categoryTrimmed: pastDueCategory,
+                categoryNorm: pastDueCategory,
                 region: region,
               });
             }
 
-            // Use Past_Due_Category from dataLoader (normalized categories: "0-30 Days", "31-45 Days", "46-60 Days", "61-90 Days", ">90 Days")
-            if (pastDueCategory === ">90 Days" || pastDueCategory === "90+ Days") {
+            // Aging buckets ONLY from Excel Past Due Category (no Days fallback)
+            if (pastDueCategory === ">90 Days") {
               pastDueBuckets[">90 Days"].count++;
               pastDueGaugeBuckets[">90 Days"].count++;
               if (
@@ -5459,7 +5454,6 @@ async function fetchCovenantsFromConfluence() {
               pastDueCategory === "31-45 Days" ||
               pastDueCategory === "1-45 Days"
             ) {
-              // 1-45 days - only in breakdown, not in gauge
               pastDueBuckets["1-45 Days"].count++;
               if (
                 region &&
@@ -5468,53 +5462,16 @@ async function fetchCovenantsFromConfluence() {
               ) {
                 pastDueBuckets["1-45 Days"].regionalBreakdown[region]++;
               }
-            } else {
-              // Fall back to No of Days Past Due when category text is unexpected
-              const days = Number(row.Days_Past_Due) || 0;
-              if (days > 90) {
-                pastDueBuckets[">90 Days"].count++;
-                pastDueGaugeBuckets[">90 Days"].count++;
-                if (
-                  region &&
-                  pastDueBuckets[">90 Days"].regionalBreakdown[region] !==
-                    undefined
-                ) {
-                  pastDueBuckets[">90 Days"].regionalBreakdown[region]++;
-                  pastDueGaugeBuckets[">90 Days"].regionalBreakdown[region]++;
-                }
-                pastDueTotalGauge++;
-              } else if (days > 45) {
-                pastDueBuckets["46-90 Days"].count++;
-                pastDueGaugeBuckets["46-90 Days"].count++;
-                if (
-                  region &&
-                  pastDueBuckets["46-90 Days"].regionalBreakdown[region] !==
-                    undefined
-                ) {
-                  pastDueBuckets["46-90 Days"].regionalBreakdown[region]++;
-                  pastDueGaugeBuckets["46-90 Days"].regionalBreakdown[region]++;
-                }
-                pastDueTotalGauge++;
-              } else if (days > 0) {
-                pastDueBuckets["1-45 Days"].count++;
-                if (
-                  region &&
-                  pastDueBuckets["1-45 Days"].regionalBreakdown[region] !==
-                    undefined
-                ) {
-                  pastDueBuckets["1-45 Days"].regionalBreakdown[region]++;
-                }
-              } else if (pastDueTotalAll <= 5) {
-                console.warn(
-                  `Unmatched Past_Due_Category: "${pastDueCategory}"`,
-                  row
-                );
-              }
+            } else if (pastDueTotalAll <= 5) {
+              console.warn(
+                'Unmatched Past_Due_Category (not counted in aging):',
+                row.Past_Due_Category
+              );
             }
           }
 
-          // Coming Due — trust Excel status (do not re-check against today's calendar)
-          if (status === "coming due") {
+          // Coming Due — exact Excel status only
+          if (status === "Coming Due") {
             comingDueBuckets["Next 30 Days"].count++;
             if (
               region &&
@@ -5525,6 +5482,13 @@ async function fetchCovenantsFromConfluence() {
             }
             comingDueTotal++;
           }
+        });
+
+        console.log("Covenant KPI totals from Excel rows:", {
+          totalActiveRows: dataSource.length,
+          pastDue: pastDueTotalAll,
+          comingDue: comingDueTotal,
+          gt90FromCategory: pastDueBuckets[">90 Days"].count,
         });
 
         // Convert buckets to categories with percentages (for breakdown display)
@@ -5939,17 +5903,16 @@ async function fetchCovenantsFromConfluence() {
         let regionalDebugCount = 0;
         dataSource.forEach((row) => {
           // Use exact field names from dataLoader export
-          const status = String(row.Coming_Due_Past_Due || "")
-            .trim()
-            .toLowerCase();
+          const status = normalizeComingDuePastDueStatus(row.Coming_Due_Past_Due);
           const region = String(row.Region || "")
             .trim()
             .toUpperCase();
-          const pastDueCategory = String(row.Past_Due_Category || "").trim();
+          const pastDueCategory = normalizePastDueCategoryValue(
+            row.Past_Due_Category
+          );
 
           if (!regions.includes(region)) return;
 
-          // Apply region filter only for legacy single-select (multi already applied in getCovenantPageDataSource)
           if (
             selectedRegion &&
             selectedRegion !== "all" &&
@@ -5958,8 +5921,7 @@ async function fetchCovenantsFromConfluence() {
           )
             return;
 
-          // For Past Due covenants - use Past_Due_Category from dataLoader (normalized categories)
-          if (status === "past due") {
+          if (status === "Past Due") {
             regionalDebugCount++;
 
             // Debug: Log first few regional past due records
@@ -5975,7 +5937,7 @@ async function fetchCovenantsFromConfluence() {
               );
             }
 
-            if (pastDueCategory === ">90 Days" || pastDueCategory === "90+ Days") {
+            if (pastDueCategory === ">90 Days") {
               regionalData[region][">90"]++;
             } else if (pastDueCategory === "61-90 Days") {
               regionalData[region]["61-90"]++;
@@ -5983,27 +5945,20 @@ async function fetchCovenantsFromConfluence() {
               regionalData[region]["46-60"]++;
             } else if (pastDueCategory === "31-45 Days") {
               regionalData[region]["31-45"]++;
-            } else if (pastDueCategory === "0-30 Days") {
+            } else if (
+              pastDueCategory === "0-30 Days" ||
+              pastDueCategory === "1-45 Days"
+            ) {
               regionalData[region]["1-30"]++;
-            } else {
-              // Fall back to days when category text is unexpected
-              const days = Number(row.Days_Past_Due) || 0;
-              if (days > 90) regionalData[region][">90"]++;
-              else if (days > 60) regionalData[region]["61-90"]++;
-              else if (days > 45) regionalData[region]["46-60"]++;
-              else if (days > 30) regionalData[region]["31-45"]++;
-              else if (days > 0) regionalData[region]["1-30"]++;
-              else if (regionalDebugCount <= 5) {
-                console.warn(
-                  `Regional: Unmatched Past_Due_Category: "${pastDueCategory}"`,
-                  row
-                );
-              }
+            } else if (regionalDebugCount <= 5) {
+              console.warn(
+                "Regional: Unmatched Past_Due_Category:",
+                row.Past_Due_Category
+              );
             }
           }
 
-          // For Coming Due — trust Excel classification
-          if (status === "coming due") {
+          if (status === "Coming Due") {
             regionalData[region]["comingDue"]++;
           }
         });
