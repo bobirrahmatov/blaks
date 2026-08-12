@@ -265,6 +265,24 @@
       };
       let covenantDetailsSearchTimer = null;
 
+      function getCovenantProductProgram(row) {
+        const val = String(
+          (row && (row.Product_Program || row.Product_Program_Name)) || ""
+        ).trim();
+        return val || "Unknown";
+      }
+
+      function getCovenantRelationshipKey(row) {
+        // Prefer stable Relationship ID; fall back to name only when ID is missing
+        const id = String((row && row.Relationship_ID) || "").trim();
+        if (id) return id;
+        const name = String(
+          (row && (row.Relationship_Name || row.Borrowers_Name || row.Client_Name)) ||
+            ""
+        ).trim();
+        return name;
+      }
+
       function updateCovenantTopMetrics() {
         const pastDue = (currentCovenantData.pastDue && (currentCovenantData.pastDue.totalAll ?? currentCovenantData.pastDue.count)) || 0;
         const comingDue = (currentCovenantData.comingDue && currentCovenantData.comingDue.count) || 0;
@@ -276,15 +294,20 @@
         if (comingEl) comingEl.textContent = comingDue.toLocaleString();
         if (totalEl) totalEl.textContent = (pastDue + comingDue).toLocaleString();
 
+        // Relationships = unique Relationship IDs among Past Due + Coming Due (next 30 days)
         const dataSource = getCovenantPageDataSource();
         const rels = new Set();
         dataSource.forEach((row) => {
           const status = String(row.Coming_Due_Past_Due || "").trim().toLowerCase();
           const isPast = status === "past due";
-          const isComing = status === "coming due" && (typeof isWithinNext30Days === "function" ? isWithinNext30Days(row.Covenant_Due_Date) : true);
+          const isComing =
+            status === "coming due" &&
+            (typeof isWithinNext30Days === "function"
+              ? isWithinNext30Days(row.Covenant_Due_Date)
+              : true);
           if (!isPast && !isComing) return;
-          const key = row.Relationship_Name || row.Relationship_ID || row.Client_Name;
-          if (key) rels.add(String(key));
+          const key = getCovenantRelationshipKey(row);
+          if (key) rels.add(key);
         });
         if (relEl) relEl.textContent = rels.size.toLocaleString();
       }
@@ -306,12 +329,13 @@
           if (isPastDue && !isPast) return;
           if (!isPastDue && !isComing) return;
 
-          const relationshipID = row.Relationship_ID || "Unknown";
+          const relationshipID = String(row.Relationship_ID || "").trim() || "Unknown";
           const relationshipName =
             row.Relationship_Name || row.Borrowers_Name || row.Client_Name || "Unknown";
           const underwriter = row.Lead_Underwriter || row.Underwriter || "Unknown";
           const region = String(row.Region || "Unknown").trim().toUpperCase() || "Unknown";
-          const key = `${relationshipID}|${relationshipName}|${underwriter}|${region}`;
+          // Group by Relationship ID + underwriter + region (ID is the stable relationship key)
+          const key = `${relationshipID}|${underwriter}|${region}`;
 
           if (!detailedTableData[key]) {
             detailedTableData[key] = {
@@ -856,7 +880,7 @@
               region: String(row.Region || "").trim() || regions[seedRels.length % 4],
               product:
                 String(
-                  row.Product_Program_Name || row.Product_Program || ""
+                  row.Product_Program || row.Product_Program_Name || ""
                 ).trim() || productPrograms[seedRels.length % 8],
               uw:
                 String(row.Lead_Underwriter || row.Underwriter || "").trim() ||
@@ -901,6 +925,7 @@
             "Relationship Name": rel.name,
             "CA Number": rel.ca || "CA" + String(i).padStart(5, "0"),
             "Covenant Number": "COV-ACT-" + i,
+            Product_Program: rel.product,
             Product_Program_Name: rel.product,
             Lead_Underwriter: rel.uw,
             Underwriting_Team_Lead: rel.team,
@@ -1339,10 +1364,10 @@
         if (!hasAnyFilter) return source.slice();
 
         const productFields = [
-          "Product_Program_Name",
-          "Product Program Name",
           "Product_Program",
           "Product Program",
+          "Product_Program_Name",
+          "Product Program Name",
         ];
         const uwFields = [
           "Lead_Underwriter",
@@ -1586,10 +1611,7 @@
       function buildInsightProductData(pastDueRows) {
         const byProduct = {};
         pastDueRows.forEach((row) => {
-          const product =
-            String(
-              row.Product_Program_Name || row.Product_Program || "Unknown"
-            ).trim() || "Unknown";
+          const product = getCovenantProductProgram(row);
           const region = String(row.Region || "").trim().toUpperCase();
           if (!byProduct[product]) {
             byProduct[product] = {
@@ -3155,15 +3177,16 @@ async function parseCovenantExcelBlob(blob) {
           "Report_Date",
           "Report Date",
         ]);
-        const productProgramName = pickCovenantField(row, [
-          "Product Program Name",
-          "Product_Program_Name",
-        ]);
         const productProgram = pickCovenantField(row, [
           "Product_Program",
           "Product Program",
         ]);
-        const resolvedProduct = productProgramName || productProgram;
+        // Product_Program is canonical; Product Program Name is fallback only
+        const productProgramName = pickCovenantField(row, [
+          "Product Program Name",
+          "Product_Program_Name",
+        ]);
+        const resolvedProduct = productProgram || productProgramName;
         const underwriter = pickCovenantField(row, [
           "Underwriter",
           "Lead_Underwriter",
@@ -3248,8 +3271,8 @@ async function parseCovenantExcelBlob(blob) {
           Report_Date: asOf,
           As_Of_Date: asOf,
           Region: pickCovenantField(row, ["Region"]),
-          Product_Program: productProgram || resolvedProduct,
-          Product_Program_Name: resolvedProduct,
+          Product_Program: resolvedProduct,
+          Product_Program_Name: resolvedProduct, // mirror for compatibility; Product_Program is canonical
           Origination_Unit: pickCovenantField(row, [
             "Originating Unit",
             "Origination_Unit",
@@ -4645,10 +4668,12 @@ async function fetchCovenantsFromConfluence() {
         console.log("Populating product dropdown from", portfolioData.length, "rows");
         const startTime = performance.now();
 
-        // Get unique product programs
+        // Get unique product programs (Product_Program is canonical)
         const products = [
           ...new Set(
-            getFilterSourceData().map((row) => row.Product_Program_Name || row.Product_Program).filter(Boolean)
+            getFilterSourceData()
+              .map((row) => getCovenantProductProgram(row))
+              .filter((p) => p && p !== "Unknown")
           ),
         ].sort();
         
@@ -5143,7 +5168,7 @@ async function fetchCovenantsFromConfluence() {
             "CA Number": row.CA_Number || "",
             "Facility Number": row.Facility_Number || "",
             "Covenant Number": row.Covenant_Number || "",
-            "Product Program": row.Product_Program_Name || row.Product_Program || "",
+            "Product Program": row.Product_Program || row.Product_Program_Name || "",
             "Lead Underwriter": row.Lead_Underwriter || "",
             "Team Lead": row.Underwriting_Team_Lead || row.Team_Lead || "",
             Status: row.Coming_Due_Past_Due || "",
@@ -6465,14 +6490,12 @@ async function fetchCovenantsFromConfluence() {
           );
         }
 
-        // Product program (supports Product_Program_Name and Product_Program)
+        // Product program — Product_Program is the canonical Excel column
         if (typeof selectedProducts !== "undefined" && selectedProducts.length > 0) {
           const products = selectedProducts.map((p) => String(p).toLowerCase());
           filtered = filtered.filter((row) => {
-            const val = String(
-              row.Product_Program_Name || row.Product_Program || ""
-            ).toLowerCase();
-            return products.includes(val);
+            const val = getCovenantProductProgram(row).toLowerCase();
+            return val && products.includes(val);
           });
         }
 
@@ -6515,8 +6538,8 @@ async function fetchCovenantsFromConfluence() {
               row.Facility_Number,
               row.Lead_Underwriter,
               row.Underwriting_Team_Lead,
-              row.Product_Program_Name,
               row.Product_Program,
+              row.Product_Program_Name,
               row.Region,
               row.Coming_Due_Past_Due,
               row.Past_Due_Category,
