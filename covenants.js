@@ -273,19 +273,44 @@
       }
 
       function getCovenantRelationshipKey(row) {
-        // Prefer stable Relationship ID; fall back to name only when ID is missing
+        // Unique relationship key for the Relationships KPI (entire filtered file)
         const id = String((row && row.Relationship_ID) || "").trim();
         if (id) return id;
         const name = String(
-          (row && (row.Relationship_Name || row.Borrowers_Name || row.Client_Name)) ||
+          (row &&
+            (row.Relationship_Name || row.Borrowers_Name || row.Client_Name)) ||
             ""
         ).trim();
         return name;
       }
 
+      function isCovenantPastDue(row) {
+        return (
+          String((row && row.Coming_Due_Past_Due) || "")
+            .trim()
+            .toLowerCase() === "past due"
+        );
+      }
+
+      function isCovenantComingDue(row) {
+        // Trust Excel "Coming Due / Past Due" column (do not re-filter by today's date)
+        return (
+          String((row && row.Coming_Due_Past_Due) || "")
+            .trim()
+            .toLowerCase() === "coming due"
+        );
+      }
+
       function updateCovenantTopMetrics() {
-        const pastDue = (currentCovenantData.pastDue && (currentCovenantData.pastDue.totalAll ?? currentCovenantData.pastDue.count)) || 0;
-        const comingDue = (currentCovenantData.comingDue && currentCovenantData.comingDue.count) || 0;
+        const pastDue =
+          (currentCovenantData.pastDue &&
+            (currentCovenantData.pastDue.totalAll ??
+              currentCovenantData.pastDue.count)) ||
+          0;
+        const comingDue =
+          (currentCovenantData.comingDue &&
+            currentCovenantData.comingDue.count) ||
+          0;
         const pastEl = document.getElementById("covMetricPastDue");
         const comingEl = document.getElementById("covMetricComingDue");
         const totalEl = document.getElementById("covMetricTotal");
@@ -294,18 +319,13 @@
         if (comingEl) comingEl.textContent = comingDue.toLocaleString();
         if (totalEl) totalEl.textContent = (pastDue + comingDue).toLocaleString();
 
-        // Relationships = unique Relationship IDs among Past Due + Coming Due (next 30 days)
-        const dataSource = getCovenantPageDataSource();
+        // Relationships = unique Relationship_ID across the entire filtered covenants file
+        const dataSource =
+          typeof getCovenantPageDataSource === "function"
+            ? getCovenantPageDataSource() || []
+            : [];
         const rels = new Set();
         dataSource.forEach((row) => {
-          const status = String(row.Coming_Due_Past_Due || "").trim().toLowerCase();
-          const isPast = status === "past due";
-          const isComing =
-            status === "coming due" &&
-            (typeof isWithinNext30Days === "function"
-              ? isWithinNext30Days(row.Covenant_Due_Date)
-              : true);
-          if (!isPast && !isComing) return;
           const key = getCovenantRelationshipKey(row);
           if (key) rels.add(key);
         });
@@ -315,79 +335,71 @@
       function buildCovenantDetailsGroupedRows(statusFilter, search) {
         const dataSource = getCovenantPageDataSource();
         const isPastDue = statusFilter === "pastDue";
-        const detailedTableData = {};
+        // One row per covenant — do NOT group/aggregate by Relationship_ID
+        let rows = [];
 
         dataSource.forEach((row) => {
-          const status = String(row.Coming_Due_Past_Due || "").trim().toLowerCase();
-          const isPast = status === "past due";
-          const isComing =
-            status === "coming due" &&
-            (typeof isWithinNext30Days === "function"
-              ? isWithinNext30Days(row.Covenant_Due_Date)
-              : true);
+          const isPast = isCovenantPastDue(row);
+          const isComing = isCovenantComingDue(row);
 
           if (isPastDue && !isPast) return;
           if (!isPastDue && !isComing) return;
 
-          const relationshipID = String(row.Relationship_ID || "").trim() || "Unknown";
+          const relationshipID =
+            String(row.Relationship_ID || "").trim() || "Unknown";
           const relationshipName =
-            row.Relationship_Name || row.Borrowers_Name || row.Client_Name || "Unknown";
-          const underwriter = row.Lead_Underwriter || row.Underwriter || "Unknown";
-          const region = String(row.Region || "Unknown").trim().toUpperCase() || "Unknown";
-          // Group by Relationship ID + underwriter + region (ID is the stable relationship key)
-          const key = `${relationshipID}|${underwriter}|${region}`;
+            row.Relationship_Name ||
+            row.Borrowers_Name ||
+            row.Client_Name ||
+            "Unknown";
+          const underwriter =
+            row.Lead_Underwriter || row.Underwriter || "Unknown";
+          const region =
+            String(row.Region || "Unknown").trim().toUpperCase() || "Unknown";
 
-          if (!detailedTableData[key]) {
-            detailedTableData[key] = {
-              relationshipID,
-              relationshipName,
-              underwriter,
-              region,
-              days_1_45: 0,
-              days_46_60: 0,
-              days_61_90: 0,
-              days_90_plus: 0,
-              coming_due: 0,
-              nextDueDate: null,
-              frequency: null,
-            };
-          }
+          const entry = {
+            relationshipID,
+            relationshipName,
+            underwriter,
+            region,
+            days_1_45: 0,
+            days_46_60: 0,
+            days_61_90: 0,
+            days_90_plus: 0,
+            coming_due: 0,
+            nextDueDate: row.Covenant_Due_Date || null,
+            frequency: row.Periodic_Frequency || row.Frequency || null,
+            covenantNumber: row.Covenant_Number || "",
+            productProgram: getCovenantProductProgram(row),
+          };
 
           if (isPast) {
             const category = String(row.Past_Due_Category || "").trim();
-            if (category === "0-30 Days" || category === "31-45 Days" || category === "1-45 Days") {
-              detailedTableData[key].days_1_45++;
+            const days = parseFloat(row.Days_Past_Due);
+            if (
+              category === "0-30 Days" ||
+              category === "31-45 Days" ||
+              category === "1-45 Days"
+            ) {
+              entry.days_1_45 = 1;
             } else if (category === "46-60 Days") {
-              detailedTableData[key].days_46_60++;
+              entry.days_46_60 = 1;
             } else if (category === "61-90 Days") {
-              detailedTableData[key].days_61_90++;
+              entry.days_61_90 = 1;
             } else if (category === ">90 Days" || category === "90+ Days") {
-              detailedTableData[key].days_90_plus++;
-            } else {
-              const days = parseFloat(row.Days_Past_Due);
-              if (!isNaN(days)) {
-                if (days <= 45) detailedTableData[key].days_1_45++;
-                else if (days <= 60) detailedTableData[key].days_46_60++;
-                else if (days <= 90) detailedTableData[key].days_61_90++;
-                else detailedTableData[key].days_90_plus++;
-              }
+              entry.days_90_plus = 1;
+            } else if (!isNaN(days) && days > 0) {
+              if (days <= 45) entry.days_1_45 = 1;
+              else if (days <= 60) entry.days_46_60 = 1;
+              else if (days <= 90) entry.days_61_90 = 1;
+              else entry.days_90_plus = 1;
             }
           } else {
-            detailedTableData[key].coming_due++;
-            if (
-              !detailedTableData[key].nextDueDate ||
-              (row.Covenant_Due_Date &&
-                row.Covenant_Due_Date < detailedTableData[key].nextDueDate)
-            ) {
-              detailedTableData[key].nextDueDate = row.Covenant_Due_Date;
-            }
-            if (!detailedTableData[key].frequency) {
-              detailedTableData[key].frequency = row.Periodic_Frequency || row.Frequency || null;
-            }
+            entry.coming_due = 1;
           }
-        });
 
-        let rows = Object.values(detailedTableData);
+          rows.push(entry);
+        });
 
         if (search) {
           rows = rows.filter((row) => {
@@ -398,6 +410,8 @@
               row.region,
               row.nextDueDate,
               row.frequency,
+              row.covenantNumber,
+              row.productProgram,
             ]
               .map((v) => String(v || "").toLowerCase())
               .join(" ");
@@ -407,15 +421,11 @@
 
         rows.sort((a, b) => {
           if (isPastDue) {
-            if (b.days_90_plus !== a.days_90_plus) return b.days_90_plus - a.days_90_plus;
-            if (b.days_61_90 !== a.days_61_90) return b.days_61_90 - a.days_61_90;
-            if (b.days_46_60 !== a.days_46_60) return b.days_46_60 - a.days_46_60;
-            return b.days_1_45 - a.days_1_45;
+            const aSevere = a.days_90_plus * 1000 + a.days_61_90 * 100 + a.days_46_60 * 10 + a.days_1_45;
+            const bSevere = b.days_90_plus * 1000 + b.days_61_90 * 100 + b.days_46_60 * 10 + b.days_1_45;
+            return bSevere - aSevere;
           }
-          if (b.coming_due !== a.coming_due) return b.coming_due - a.coming_due;
-          const aDate = a.nextDueDate || "";
-          const bDate = b.nextDueDate || "";
-          return aDate < bDate ? -1 : aDate > bDate ? 1 : 0;
+          return String(a.nextDueDate || "").localeCompare(String(b.nextDueDate || ""));
         });
 
         return rows;
@@ -1608,39 +1618,33 @@
         return regionalAgingData;
       }
 
-      function buildInsightProductData(pastDueRows) {
+      function buildInsightProductData(covenantRows) {
+        // Total active covenants by Product_Program (entire filtered file — not Past Due only)
         const byProduct = {};
-        pastDueRows.forEach((row) => {
+        (covenantRows || []).forEach((row) => {
           const product = getCovenantProductProgram(row);
+          if (!product || product === "Unknown") return;
           const region = String(row.Region || "").trim().toUpperCase();
           if (!byProduct[product]) {
             byProduct[product] = {
               count: 0,
               regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
-              agingBreakdown: {
-                "1-45": 0,
-                "46-60": 0,
-                "61-90": 0,
-                ">90": 0,
-                comingDue: 0,
-              },
+              statusBreakdown: { pastDue: 0, comingDue: 0, other: 0 },
             };
           }
           byProduct[product].count++;
           if (byProduct[product].regionalBreakdown[region] !== undefined) {
             byProduct[product].regionalBreakdown[region]++;
           }
-
-          const category = String(row.Past_Due_Category || "").trim();
-          const days = Number(row.Days_Past_Due) || 0;
-          if (category === ">90 Days" || category === "90+ Days" || days > 90) {
-            byProduct[product].agingBreakdown[">90"]++;
-          } else if (category === "61-90 Days" || (days > 60 && days <= 90)) {
-            byProduct[product].agingBreakdown["61-90"]++;
-          } else if (category === "46-60 Days" || (days > 45 && days <= 60)) {
-            byProduct[product].agingBreakdown["46-60"]++;
+          if (typeof isCovenantPastDue === "function" && isCovenantPastDue(row)) {
+            byProduct[product].statusBreakdown.pastDue++;
+          } else if (
+            typeof isCovenantComingDue === "function" &&
+            isCovenantComingDue(row)
+          ) {
+            byProduct[product].statusBreakdown.comingDue++;
           } else {
-            byProduct[product].agingBreakdown["1-45"]++;
+            byProduct[product].statusBreakdown.other++;
           }
         });
 
@@ -1650,10 +1654,14 @@
       function updateCovenantInsightsSection() {
         if (typeof ApexCharts === "undefined") return;
         const pastDueRows = getFilteredPastDueCovenants();
+        const allActiveRows =
+          typeof getCovenantPageDataSource === "function"
+            ? getCovenantPageDataSource() || []
+            : [];
         const regionOrder = ["APAC", "EMEA", "NAM", "LATAM"];
         const regionalAgingData = buildInsightRegionalAging(pastDueRows);
-        const productData = buildInsightProductData(pastDueRows);
-        const totalCovenants = pastDueRows.length;
+        const productData = buildInsightProductData(allActiveRows);
+        const totalCovenants = allActiveRows.length;
 
         // --- Aging Severity by Region (stacked) ---
         const agingParts = ensureInsightAgingStructure();
@@ -1881,14 +1889,33 @@
                   const count = series[seriesIndex] || 0;
                   return buildCovenantStyleTooltip({
                     title: program,
-                    subtitle: "Covenants by product program",
+                    subtitle: "Total active covenants by product program",
                     count,
                     total: totalCovenants,
-                    breakdownTitle: "Regional Distribution",
-                    breakdownRows: regionalBreakdownRows(
-                      data.regionalBreakdown || {}
-                    ),
-                    col1: "Region",
+                    breakdownTitle: "Status",
+                    breakdownRows: [
+                      {
+                        label: "Past Due",
+                        value:
+                          (data.statusBreakdown &&
+                            data.statusBreakdown.pastDue) ||
+                          0,
+                      },
+                      {
+                        label: "Coming Due",
+                        value:
+                          (data.statusBreakdown &&
+                            data.statusBreakdown.comingDue) ||
+                          0,
+                      },
+                      {
+                        label: "Other",
+                        value:
+                          (data.statusBreakdown && data.statusBreakdown.other) ||
+                          0,
+                      },
+                    ],
+                    col1: "Status",
                     col2: "Count",
                   });
                 },
@@ -3209,10 +3236,15 @@ async function parseCovenantExcelBlob(blob) {
           ]) || ""
         ).trim();
         const statusLower = comingDuePastDue.toLowerCase();
-        if (statusLower.includes("past")) comingDuePastDue = "Past Due";
-        else if (statusLower.includes("coming") || statusLower.includes("due"))
+        // Trust Excel status; only light normalize. Do not invent Past Due from days alone
+        // when status is blank — that inflated Past Due / >90 counts.
+        if (statusLower.includes("past") || statusLower.includes("overdue")) {
+          comingDuePastDue = "Past Due";
+        } else if (statusLower.includes("coming")) {
           comingDuePastDue = "Coming Due";
-        else if (daysPastDue > 0) comingDuePastDue = "Past Due";
+        } else {
+          comingDuePastDue = comingDuePastDue; // keep raw; charts require exact Past Due / Coming Due
+        }
 
         let pastDueCategory = String(
           pickCovenantField(row, [
@@ -3220,39 +3252,35 @@ async function parseCovenantExcelBlob(blob) {
             "Past_Due_Category",
           ]) || ""
         ).trim();
-        // Normalize common variants → buckets used by monitoring charts
-        const catLower = pastDueCategory.toLowerCase().replace(/\s+/g, " ");
+        // Light normalize only — keep Excel buckets; do not remap by fuzzy "includes"
+        const catNorm = pastDueCategory.toLowerCase().replace(/\s+/g, " ").trim();
         if (
-          catLower.includes(">90") ||
-          catLower.includes("90+") ||
-          catLower.includes("over 90")
+          catNorm === ">90 days" ||
+          catNorm === "90+ days" ||
+          catNorm === "over 90 days" ||
+          catNorm === "> 90 days"
         ) {
           pastDueCategory = ">90 Days";
-        } else if (
-          catLower.includes("61") ||
-          catLower.includes("61-90") ||
-          catLower.includes("60-90")
-        ) {
+        } else if (catNorm === "61-90 days" || catNorm === "61 to 90 days") {
           pastDueCategory = "61-90 Days";
-        } else if (
-          catLower.includes("46") ||
-          catLower.includes("46-60") ||
-          catLower.includes("45-60")
-        ) {
+        } else if (catNorm === "46-60 days" || catNorm === "46 to 60 days") {
           pastDueCategory = "46-60 Days";
-        } else if (catLower.includes("31") || catLower.includes("31-45")) {
+        } else if (catNorm === "31-45 days" || catNorm === "31 to 45 days") {
           pastDueCategory = "31-45 Days";
         } else if (
-          catLower.includes("0-30") ||
-          catLower.includes("1-30") ||
-          catLower.includes("1-45") ||
-          catLower.includes("0-45")
+          catNorm === "0-30 days" ||
+          catNorm === "1-30 days" ||
+          catNorm === "0 to 30 days"
         ) {
-          pastDueCategory =
-            catLower.includes("1-45") || catLower.includes("0-45")
-              ? "1-45 Days"
-              : "0-30 Days";
-        } else if (comingDuePastDue === "Past Due" && daysPastDue > 0) {
+          pastDueCategory = "0-30 Days";
+        } else if (catNorm === "1-45 days" || catNorm === "0-45 days") {
+          pastDueCategory = "1-45 Days";
+        } else if (
+          comingDuePastDue === "Past Due" &&
+          !pastDueCategory &&
+          daysPastDue > 0
+        ) {
+          // Only derive category when Excel left it blank on a Past Due row
           if (daysPastDue > 90) pastDueCategory = ">90 Days";
           else if (daysPastDue > 60) pastDueCategory = "61-90 Days";
           else if (daysPastDue > 45) pastDueCategory = "46-60 Days";
@@ -5375,9 +5403,11 @@ async function fetchCovenantsFromConfluence() {
             .trim()
             .toUpperCase();
 
-          // Apply region filter if active
+          // Apply region filter only for legacy single-select (multi already applied in getCovenantPageDataSource)
           if (
+            selectedRegion &&
             selectedRegion !== "all" &&
+            selectedRegion !== "multi" &&
             region !== selectedRegion.toUpperCase()
           )
             return;
@@ -5439,21 +5469,52 @@ async function fetchCovenantsFromConfluence() {
                 pastDueBuckets["1-45 Days"].regionalBreakdown[region]++;
               }
             } else {
-              // Catch any unmatched categories
-              if (pastDueTotalAll <= 5) {
+              // Fall back to No of Days Past Due when category text is unexpected
+              const days = Number(row.Days_Past_Due) || 0;
+              if (days > 90) {
+                pastDueBuckets[">90 Days"].count++;
+                pastDueGaugeBuckets[">90 Days"].count++;
+                if (
+                  region &&
+                  pastDueBuckets[">90 Days"].regionalBreakdown[region] !==
+                    undefined
+                ) {
+                  pastDueBuckets[">90 Days"].regionalBreakdown[region]++;
+                  pastDueGaugeBuckets[">90 Days"].regionalBreakdown[region]++;
+                }
+                pastDueTotalGauge++;
+              } else if (days > 45) {
+                pastDueBuckets["46-90 Days"].count++;
+                pastDueGaugeBuckets["46-90 Days"].count++;
+                if (
+                  region &&
+                  pastDueBuckets["46-90 Days"].regionalBreakdown[region] !==
+                    undefined
+                ) {
+                  pastDueBuckets["46-90 Days"].regionalBreakdown[region]++;
+                  pastDueGaugeBuckets["46-90 Days"].regionalBreakdown[region]++;
+                }
+                pastDueTotalGauge++;
+              } else if (days > 0) {
+                pastDueBuckets["1-45 Days"].count++;
+                if (
+                  region &&
+                  pastDueBuckets["1-45 Days"].regionalBreakdown[region] !==
+                    undefined
+                ) {
+                  pastDueBuckets["1-45 Days"].regionalBreakdown[region]++;
+                }
+              } else if (pastDueTotalAll <= 5) {
                 console.warn(
-                  `⚠️ Unmatched Past_Due_Category: "${pastDueCategory}"`,
+                  `Unmatched Past_Due_Category: "${pastDueCategory}"`,
                   row
                 );
               }
             }
           }
 
-          // Process Coming Due covenants (only next 30 days)
-          if (
-            status === "coming due" &&
-            isWithinNext30Days(row.Covenant_Due_Date)
-          ) {
+          // Coming Due — trust Excel status (do not re-check against today's calendar)
+          if (status === "coming due") {
             comingDueBuckets["Next 30 Days"].count++;
             if (
               region &&
@@ -5861,9 +5922,11 @@ async function fetchCovenantsFromConfluence() {
 
           if (!regions.includes(region)) return;
 
-          // Apply region filter if active
+          // Apply region filter only for legacy single-select (multi already applied in getCovenantPageDataSource)
           if (
+            selectedRegion &&
             selectedRegion !== "all" &&
+            selectedRegion !== "multi" &&
             region !== selectedRegion.toUpperCase()
           )
             return;
@@ -5886,9 +5949,11 @@ async function fetchCovenantsFromConfluence() {
 
           if (!regions.includes(region)) return;
 
-          // Apply region filter if active
+          // Apply region filter only for legacy single-select (multi already applied in getCovenantPageDataSource)
           if (
+            selectedRegion &&
             selectedRegion !== "all" &&
+            selectedRegion !== "multi" &&
             region !== selectedRegion.toUpperCase()
           )
             return;
@@ -5921,21 +5986,24 @@ async function fetchCovenantsFromConfluence() {
             } else if (pastDueCategory === "0-30 Days") {
               regionalData[region]["1-30"]++;
             } else {
-              // Catch any unmatched categories
-              if (regionalDebugCount <= 5) {
+              // Fall back to days when category text is unexpected
+              const days = Number(row.Days_Past_Due) || 0;
+              if (days > 90) regionalData[region][">90"]++;
+              else if (days > 60) regionalData[region]["61-90"]++;
+              else if (days > 45) regionalData[region]["46-60"]++;
+              else if (days > 30) regionalData[region]["31-45"]++;
+              else if (days > 0) regionalData[region]["1-30"]++;
+              else if (regionalDebugCount <= 5) {
                 console.warn(
-                  `⚠️ Regional: Unmatched Past_Due_Category: "${pastDueCategory}"`,
+                  `Regional: Unmatched Past_Due_Category: "${pastDueCategory}"`,
                   row
                 );
               }
             }
           }
 
-          // For Coming Due covenants - Coming_Due_Past_Due = "Coming Due" means it's coming due (next 30 days only)
-          if (
-            status === "coming due" &&
-            isWithinNext30Days(row.Covenant_Due_Date)
-          ) {
+          // For Coming Due — trust Excel classification
+          if (status === "coming due") {
             regionalData[region]["comingDue"]++;
           }
         });
