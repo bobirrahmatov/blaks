@@ -411,11 +411,48 @@
         );
       }
 
-      function isCovenantComingDue(row) {
+      function isCovenantComingDueStatus(row) {
         return (
           normalizeComingDuePastDueStatus(row && row.Coming_Due_Past_Due) ===
           "Coming Due"
         );
+      }
+
+      const COMING_DUE_HORIZON_MONTHS = 3;
+
+      function addCalendarMonths(date, months) {
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        d.setMonth(d.getMonth() + months);
+        return d;
+      }
+
+      function isCovenantDueWithinNextMonths(row, asOf, months) {
+        const due = parseDate(row && row.Covenant_Due_Date);
+        if (!due || !asOf) return false;
+        due.setHours(0, 0, 0, 0);
+        const start = new Date(asOf);
+        start.setHours(0, 0, 0, 0);
+        const end = addCalendarMonths(start, months == null ? COMING_DUE_HORIZON_MONTHS : months);
+        return due.getTime() >= start.getTime() && due.getTime() <= end.getTime();
+      }
+
+      function isCovenantComingDue(row, asOfOpt) {
+        if (!isCovenantComingDueStatus(row)) return false;
+        const asOf =
+          asOfOpt ||
+          getCovenantAsOfDate(row ? [row] : []) ||
+          getCovenantAsOfDate(typeof covenantsData !== "undefined" ? covenantsData : []);
+        if (!asOf) return false;
+        return isCovenantDueWithinNextMonths(
+          row,
+          asOf,
+          COMING_DUE_HORIZON_MONTHS
+        );
+      }
+
+      function isCovenantInTotalUniverse(row, asOfOpt) {
+        return isCovenantPastDue(row) || isCovenantComingDue(row, asOfOpt);
       }
 
       function isCovenantActionNeeded(row) {
@@ -626,20 +663,19 @@
         let pastDue = 0;
         let comingDue = 0;
         const rels = new Set();
+        const asOf = getCovenantAsOfDate(dataSource);
 
         dataSource.forEach((row) => {
           if (isCovenantPastDue(row)) pastDue++;
-          else if (isCovenantComingDue(row)) comingDue++;
+          else if (isCovenantComingDue(row, asOf)) comingDue++;
           const key = getCovenantRelationshipKey(row);
           if (key) rels.add(key);
         });
 
-        const totalActive = dataSource.length;
+        const totalActive = pastDue + comingDue;
         const actionNeeded = pastDue;
         const actionPct =
           totalActive > 0 ? ((actionNeeded / totalActive) * 100).toFixed(1) : "0.0";
-        const upPct =
-          totalActive > 0 ? ((comingDue / totalActive) * 100).toFixed(1) : "0.0";
 
         const comingEl = document.getElementById("covMetricComingDue");
         const totalEl = document.getElementById("covMetricTotal");
@@ -653,11 +689,8 @@
         setCovInsight(
           "covMetricTotalSub",
           totalActive
-            ? actionNeeded.toLocaleString() +
-                " of " +
-                totalActive.toLocaleString() +
-                " are Past Due"
-            : "Filtered file"
+            ? "Past Due + Coming Due (3 mo)"
+            : "Past Due + Coming Due (3 mo)"
         );
         setCovInsight(
           "covMetricActionSub",
@@ -665,7 +698,7 @@
         );
         setCovInsight(
           "covMetricComingDueSub",
-          comingDue ? upPct + "% of total" : "Coming Due"
+          comingDue ? "Next 3 months" : "Next 3 months"
         );
         setCovInsight(
           "covMetricRelationshipsSub",
@@ -5014,7 +5047,7 @@ async function fetchCovenantsFromConfluence() {
         },
         comingDue: {
           title: "Total Coming Due",
-          subtitle: "All Coming Due covenants — Coming Due / Past Due = Coming Due",
+          subtitle: "Coming Due in the next 3 months from As Of Date",
         },
         actionNeeded: {
           title: "Action Needed",
@@ -5022,7 +5055,7 @@ async function fetchCovenantsFromConfluence() {
         },
         totalActive: {
           title: "Total Covenants",
-          subtitle: "All covenants in the filtered file — status, region, and product mix",
+          subtitle: "Past Due + Coming Due in the next 3 months",
         },
         relationships: {
           title: "Relationships with Active Covenants",
@@ -5424,9 +5457,9 @@ async function fetchCovenantsFromConfluence() {
       }
 
       function generateComingDueExpandedView(dataSource) {
-        const rows = (dataSource || []).filter((r) => isCovenantComingDue(r));
-        const total = rows.length;
         const asOf = getCovenantAsOfDate(dataSource);
+        const rows = (dataSource || []).filter((r) => isCovenantComingDue(r, asOf));
+        const total = rows.length;
         const byProduct = expandCountBy(rows, (r) => getCovenantProductProgram(r));
         const byUw = expandCountBy(
           rows,
@@ -5617,53 +5650,80 @@ async function fetchCovenantsFromConfluence() {
       }
 
       function generateTotalActiveExpandedView(dataSource) {
-        const rows = dataSource || [];
+        const asOf = getCovenantAsOfDate(dataSource);
+        const rows = (dataSource || []).filter((r) =>
+          isCovenantInTotalUniverse(r, asOf)
+        );
         const total = rows.length;
         const past = rows.filter((r) => isCovenantPastDue(r)).length;
-        const coming = rows.filter((r) => isCovenantComingDue(r)).length;
-        const other = Math.max(0, total - past - coming);
-        const rels = new Set(rows.map((r) => getCovenantRelationshipKey(r)).filter(Boolean));
+        const coming = rows.filter((r) => isCovenantComingDue(r, asOf)).length;
+        const rels = new Set(
+          rows.map((r) => getCovenantRelationshipKey(r)).filter(Boolean)
+        );
         const byProduct = expandCountBy(rows, (r) => getCovenantProductProgram(r));
         const byUw = expandCountBy(
           rows,
-          (r) => r.Lead_Underwriter || r.Underwriter || "Unknown"
+          (r) => r.Underwriter || r.Lead_Underwriter || "Unknown"
         );
-        const byRegion = expandCountBy(rows, (r) =>
-          String(r.Region || "Unknown").trim().toUpperCase()
-        );
+        const regionStatus = {};
+        const regionOrder = ["APAC", "EMEA", "NAM", "LATAM"];
+        rows.forEach((row) => {
+          const region =
+            String(row.Region || "Unknown").trim().toUpperCase() || "UNKNOWN";
+          if (!regionStatus[region]) {
+            regionStatus[region] = { pastDue: 0, comingDue: 0 };
+          }
+          if (isCovenantPastDue(row)) regionStatus[region].pastDue++;
+          else if (isCovenantComingDue(row, asOf)) regionStatus[region].comingDue++;
+        });
 
         return `
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            ${expandMetricCard("bg-blue-100", "text-blue-600", "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", "Total Active", total.toLocaleString(), "All filtered Excel rows")}
-            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Past Due", past.toLocaleString(), total ? ((past / total) * 100).toFixed(1) + "% of total" : "0%")}
-            ${expandMetricCard("bg-green-100", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Coming Due", coming.toLocaleString(), total ? ((coming / total) * 100).toFixed(1) + "% of total" : "0%")}
-            ${expandMetricCard("bg-purple-100", "text-purple-600", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", rels.size.toLocaleString(), other ? other + " other status rows" : "Unique clients")}
+            ${expandMetricCard("bg-blue-100", "text-blue-600", "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", "Total Covenants", total.toLocaleString())}
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Past Due", past.toLocaleString())}
+            ${expandMetricCard("bg-green-100", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Coming Due (3 mo)", coming.toLocaleString())}
+            ${expandMetricCard("bg-gray-100", "text-gray-700", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", rels.size.toLocaleString())}
           </div>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandDonutBlock(
+              "Past Due vs Coming Due",
+              "",
+              [
+                ["Past Due", past],
+                ["Coming Due", coming],
+              ],
+              total,
+              "Past Due + Coming Due (next 3 months)",
+              "expandTotalStatusDonut",
+              "__expandTotalStatusMix",
+              ["#dc2626", "#16a34a"]
+            )}
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Status Mix</h3>
-              <div id="expandStatusDonut" style="min-height:280px"></div>
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Past Due vs Coming Due by Region</h3>
+              <div id="expandTotalRegionStacked" class="w-full" style="min-height:320px"></div>
             </div>
-            ${expandRankedList("By Region", "All active covenants by region", byRegion, total)}
           </div>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             ${expandProductDonutBlock(
               "Covenants by Product Program",
-              "All active covenants by Product_Program",
+              "Past Due + Coming Due (3 months) by Product Program Name",
               byProduct,
               total,
               "Total covenants by Product Program"
             )}
             ${expandUnderwriterBarBlock(
               "Covenants by Underwriter Top 5",
-              "All active covenants by underwriter",
+              "Past Due + Coming Due (3 months) by underwriter",
               byUw,
               total,
               "Total covenants by underwriter",
               "#3641f5"
             )}
           </div>
-          <script>window.__expandStatusMix=${JSON.stringify({ past, coming, other })};</script>`;
+          <script>window.__expandTotalRegionStacked=${JSON.stringify({
+            regionStatus,
+            regionOrder,
+          })};</script>`;
       }
 
       function generateRelationshipsExpandedView(dataSource) {
@@ -6062,23 +6122,7 @@ async function fetchCovenantsFromConfluence() {
         if (typeof ApexCharts === "undefined") return;
         destroyExpandCharts();
 
-        // Status mix donut (Total Active)
-        const statusEl = document.getElementById("expandStatusDonut");
-        if (statusEl && window.__expandStatusMix) {
-          const m = window.__expandStatusMix;
-          const chart = new ApexCharts(statusEl, {
-            chart: { type: "donut", height: 280, fontFamily: "Outfit, sans-serif" },
-            labels: ["Past Due", "Upcoming", "Other"],
-            series: [m.past || 0, m.coming || 0, m.other || 0],
-            colors: ["#dc2626", "#16a34a", "#94a3b8"],
-            legend: { position: "bottom" },
-            dataLabels: { enabled: false },
-          });
-          chart.render();
-          expandChartInstances.status = chart;
-        }
-
-        // Product / frequency donuts — same visual as the dashboard Product Program card
+        // Product / frequency / total-status donuts
         const renderExpandDonut = (elId, payloadKey, instanceKey) => {
           const el = document.getElementById(elId);
           const payload = window[payloadKey];
@@ -6180,6 +6224,7 @@ async function fetchCovenantsFromConfluence() {
         renderExpandDonut("expandProductDonut", "__expandProductData", "product");
         renderExpandDonut("expandFrequencyDonut", "__expandFrequencyData", "frequency");
         renderExpandDonut("expandComingDueMixDonut", "__expandComingDueMix", "comingDueMix");
+        renderExpandDonut("expandTotalStatusDonut", "__expandTotalStatusMix", "totalStatus");
 
         // Underwriter bar — same color legends as Product Program, different chart type
         const uwEl = document.getElementById("expandUnderwriterBar");
@@ -6304,6 +6349,50 @@ async function fetchCovenantsFromConfluence() {
           });
           chart.render();
           expandChartInstances.comingDueRegion = chart;
+        }
+
+        // Total Covenants — Past Due vs Coming Due by Region
+        const totalRegionEl = document.getElementById("expandTotalRegionStacked");
+        if (totalRegionEl && window.__expandTotalRegionStacked) {
+          const payload = window.__expandTotalRegionStacked;
+          const regionStatus = payload.regionStatus || {};
+          const preferred = payload.regionOrder || ["APAC", "EMEA", "NAM", "LATAM"];
+          const extra = Object.keys(regionStatus).filter(
+            (r) => preferred.indexOf(r) === -1
+          );
+          const regions = preferred
+            .concat(extra)
+            .filter((r) => {
+              const d = regionStatus[r];
+              return d && ((d.pastDue || 0) > 0 || (d.comingDue || 0) > 0);
+            });
+          const chart = new ApexCharts(totalRegionEl, {
+            chart: {
+              type: "bar",
+              stacked: true,
+              height: 320,
+              fontFamily: "Outfit, sans-serif",
+              toolbar: { show: false },
+            },
+            series: [
+              {
+                name: "Past Due",
+                data: regions.map((r) => (regionStatus[r] && regionStatus[r].pastDue) || 0),
+              },
+              {
+                name: "Coming Due",
+                data: regions.map((r) => (regionStatus[r] && regionStatus[r].comingDue) || 0),
+              },
+            ],
+            xaxis: { categories: regions },
+            colors: ["#dc2626", "#16a34a"],
+            plotOptions: covStackedBarPlotOptions(),
+            legend: { position: "top" },
+            dataLabels: covStackedBarDataLabels(),
+            grid: { padding: { top: 16 } },
+          });
+          chart.render();
+          expandChartInstances.totalRegion = chart;
         }
 
         // Past due aging donut (Past Due expand only — Action Needed is all >90)
@@ -8938,14 +9027,19 @@ async function fetchCovenantsFromConfluence() {
 
       function getCovenantPageDataSource() {
         const raw = covenantsData.length > 0 ? covenantsData : [];
+        let filtered = raw;
         if (typeof applyCovenantFilters === "function") {
           try {
-            return applyCovenantFilters(raw) || raw;
+            filtered = applyCovenantFilters(raw) || raw;
           } catch (e) {
             console.warn("applyCovenantFilters failed, using raw covenant data", e);
+            filtered = raw;
           }
         }
-        return raw;
+        const asOf = getCovenantAsOfDate(filtered.length ? filtered : raw);
+        return (filtered || []).filter((row) =>
+          isCovenantInTotalUniverse(row, asOf)
+        );
       }
 
       function applyCovenantFilters(dataSource) {
