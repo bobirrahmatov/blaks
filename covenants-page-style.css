@@ -1,4 +1,30 @@
 /* Covenant Monitoring — page-specific styles */
+.max-w-screen-7xl {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+#globalRiskCovenants,
+.covenants-page-root,
+#globalRiskCovenants .covenants-page-inner {
+  display: block;
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+.covenants-filter-bar,
+#regionFilterContainer,
+#productFilterContainer,
+#underwriterFilterContainer,
+#teamLeadFilterContainer {
+  overflow: visible;
+  position: relative;
+  z-index: 40;
+}
+
 /* DataTable Custom Styles */
       .text-theme-xs {
         font-size: 0.75rem;
@@ -56,27 +82,52 @@
         /* 20px */
       }
 
-      /* Chart dark style for consistent sizing */
-      .chartDarkStyle {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 280px;
-        height: 280px;
+      /* Chart hosts fill their cards */
+      .chartDarkStyle,
+      .cov-chart-fill {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 280px;
       }
 
-      @media (max-width: 640px) {
-        .chartDarkStyle {
-          width: 280px;
-          height: 280px;
-        }
+      #covenantMonitoringHost {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        text-align: center;
+      }
+      #covenantMonitoringChart.chartDarkStyle {
+        display: block;
+        width: 280px !important;
+        height: 280px !important;
+        min-height: 280px !important;
+        max-width: 280px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      #covenantMonitoringLegend {
+        display: flex !important;
+        justify-content: center !important;
+        width: 100%;
       }
 
-      @media (min-width: 2600px) {
-        .chartDarkStyle {
-          width: 240px;
-          height: 240px;
-        }
+      #covChartActionByRegion,
+      #covChartPastDueAging,
+      #covChartComingDueMonth,
+      #covInsightAgingByRegionChart,
+      #covActivityChart {
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 280px;
+      }
+
+      .cov-insight-text {
+        font-size: 0.75rem;
+        line-height: 1rem;
+        color: #6b7280;
+        margin-top: 0.5rem;
       }
 
       /* Consistent Tooltip Styling for All Charts */
@@ -177,6 +228,43 @@
       .regional-summary-table th:not(:first-child),
       .regional-summary-table td:not(:first-child) {
         text-align: center !important;
+      }
+
+
+      /* Expand underwriter / horizontal bars */
+      #expandUnderwriterBar,
+      #expandActionNeededBar,
+      #expandComingDueRegionBar,
+      #expandProductRegionBar,
+      #expandFortyFiveBar,
+      #expandRelationshipsBar,
+      #expandRelationshipVolumeBar,
+      #expandDetailsBar {
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow: visible !important;
+      }
+      #expandUnderwriterBar .apexcharts-canvas,
+      #expandUnderwriterBar .apexcharts-svg,
+      #expandActionNeededBar .apexcharts-canvas,
+      #expandComingDueRegionBar .apexcharts-canvas,
+      #expandProductRegionBar .apexcharts-canvas,
+      #expandFortyFiveBar .apexcharts-canvas,
+      #expandRelationshipsBar .apexcharts-canvas,
+      #expandRelationshipVolumeBar .apexcharts-canvas,
+      #expandDetailsBar .apexcharts-canvas {
+        overflow: visible !important;
+        max-width: 100% !important;
+      }
+      #expandUnderwriterBar .apexcharts-tooltip,
+      #expandActionNeededBar .apexcharts-tooltip,
+      #expandComingDueRegionBar .apexcharts-tooltip,
+      #expandProductRegionBar .apexcharts-tooltip,
+      #expandFortyFiveBar .apexcharts-tooltip,
+      #expandRelationshipsBar .apexcharts-tooltip,
+      #expandRelationshipVolumeBar .apexcharts-tooltip,
+      #expandDetailsBar .apexcharts-tooltip {
+        overflow: visible !important;
       }
 
 

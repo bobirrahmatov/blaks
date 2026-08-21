@@ -40,11 +40,13 @@
         run("updateCovenantRegionalTable", () =>
           updateCovenantRegionalTable(view)
         );
+        run("updateCovenantDashboardViz", updateCovenantDashboardViz);
         run("updateCovenantActivitySection", updateCovenantActivitySection);
         run("updateCovenantInsightsSection", updateCovenantInsightsSection);
         run("updateCovenantTopMetrics", updateCovenantTopMetrics);
         run("renderCovenantDetailsTable", renderCovenantDetailsTable);
       }
+      window.refreshCovenantPageCharts = refreshCovenantPageCharts;
 
 // Shared Past Due–style tooltip + SVG download helpers (covenants page)
       function buildCovenantStyleTooltip(opts) {
@@ -53,6 +55,11 @@
         const count = Number(opts.count) || 0;
         const total = Number(opts.total) || 0;
         const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : "0.0";
+        const hasRel =
+          opts.relationships !== undefined && opts.relationships !== null;
+        const relCount = Number(opts.relationships) || 0;
+        const perRel =
+          relCount > 0 ? (count / relCount).toFixed(1) : "";
         const breakdownTitle = opts.breakdownTitle || "Breakdown";
         const breakdownRows = Array.isArray(opts.breakdownRows)
           ? opts.breakdownRows
@@ -76,8 +83,8 @@
             background: #ffffff;
             border-radius: 12px;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            min-width: 280px;
-            max-width: 320px;
+            min-width: ${hasRel ? "340px" : "280px"};
+            max-width: ${hasRel ? "380px" : "320px"};
             overflow: hidden;
             font-family: Outfit, sans-serif;
           ">
@@ -86,7 +93,7 @@
               <div style="font-size: 12px; font-weight: 500; color: #6B7280;">${subtitle}</div>
             </div>
             <div style="padding: 0 16px 16px 16px;">
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;">
+              <div style="display: grid; grid-template-columns: ${hasRel ? "1fr 1fr 1fr" : "1fr 1fr"}; gap: 10px; margin-bottom: 16px;">
                 <div style="background: #F9FAFB; border-radius: 8px; padding: 12px; border: 1px solid #E5E7EB;">
                   <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6B7280; font-weight: 500; margin-bottom: 6px;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -107,6 +114,27 @@
                   </div>
                   <div style="font-size: 14px; font-weight: 700; color: #111827;">${percentage}%</div>
                 </div>
+                ${
+                  hasRel
+                    ? `<div style="background: #F9FAFB; border-radius: 8px; padding: 12px; border: 1px solid #E5E7EB;">
+                  <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #6B7280; font-weight: 500; margin-bottom: 6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                      <circle cx="9" cy="7" r="4"></circle>
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    Relationships
+                  </div>
+                  <div style="font-size: 20px; font-weight: 700; color: #111827;">${relCount.toLocaleString()}</div>
+                  ${
+                    perRel
+                      ? `<div style="font-size: 10px; color: #6B7280; font-weight: 500; margin-top: 4px;">${perRel} per relationship</div>`
+                      : ""
+                  }
+                </div>`
+                    : ""
+                }
               </div>
               <div style="margin-top: 12px;">
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
@@ -246,6 +274,14 @@
         else if (key === "productDonut")
           instance =
             covInsightChartInstances && covInsightChartInstances.productDonut;
+        else if (key === "actionByRegion")
+          instance = covDashChartInstances && covDashChartInstances.actionByRegion;
+        else if (key === "pastDueAging")
+          instance = covDashChartInstances && covDashChartInstances.pastDueAging;
+        else if (key === "upcomingProduct")
+          instance = covDashChartInstances && covDashChartInstances.upcomingProduct;
+        else if (key === "comingDueMonth")
+          instance = covDashChartInstances && covDashChartInstances.comingDueMonth;
         downloadApexChartSVG(instance, filename || key);
       };
 
@@ -257,7 +293,7 @@
       }
 
 
-      window.covenantDetailsFilter = window.covenantDetailsFilter || "pastDue";
+      window.covenantDetailsFilter = window.covenantDetailsFilter || "actionNeeded";
       window.covenantDetailsTableState = window.covenantDetailsTableState || {
         page: 1,
         perPage: 10,
@@ -270,6 +306,55 @@
           (row && (row.Product_Program || row.Product_Program_Name)) || ""
         ).trim();
         return val || "Unknown";
+      }
+
+      function getCovenantProductProgramName(row) {
+        const name = String(
+          (row &&
+            (row.Product_Program_Name || row["Product Program Name"])) ||
+            ""
+        ).trim();
+        if (name) return name;
+        return String(
+          (row && (row.Product_Program || row["Product Program"])) || ""
+        ).trim();
+      }
+
+      function getCovenantUnderwriter(row) {
+        return String((row && (row.Underwriter || row["Underwriter"])) || "").trim();
+      }
+
+      function getCovenantTeamLead(row) {
+        return String(
+          (row &&
+            (row.Underwriting_Team_Lead ||
+              row["Underwriting Team Lead"])) ||
+            ""
+        ).trim();
+      }
+
+      function getCovenantRegion(row) {
+        return String((row && row.Region) || "")
+          .trim()
+          .toUpperCase();
+      }
+
+      function getCovenantFrequency(row) {
+        const val = String(
+          (row &&
+            (row.Periodic_Frequency || row.Frequency || row.Periodicity)) ||
+            ""
+        ).trim();
+        return val || "Unknown";
+      }
+
+      function countUniqueRelationships(rows) {
+        const set = new Set();
+        (rows || []).forEach((row) => {
+          const key = getCovenantRelationshipKey(row);
+          if (key) set.add(key);
+        });
+        return set.size;
       }
 
       function getCovenantRelationshipKey(row) {
@@ -333,6 +418,204 @@
         );
       }
 
+      function isCovenantActionNeeded(row) {
+        // Action Needed = Past Due only (Coming Due / Past Due = Past Due)
+        return isCovenantPastDue(row);
+      }
+
+      function getCovenant45DaysDate(row) {
+        if (!row) return null;
+        return parseDate(
+          row["45_Days_Past_Due_Date"] ||
+            row["45 Days Past Due Date"] ||
+            row["45DaysPastDueDate"]
+        );
+      }
+
+      function isCovenant45DaysPastDue(row, asOf) {
+        if (!isCovenantPastDue(row)) return false;
+        const d45 = getCovenant45DaysDate(row);
+        if (!d45) return false;
+        if (!asOf) return true;
+        const a = new Date(asOf);
+        a.setHours(0, 0, 0, 0);
+        d45.setHours(0, 0, 0, 0);
+        return a.getTime() >= d45.getTime();
+      }
+
+      function isCovenantGt90(row) {
+        return (
+          isCovenantPastDue(row) &&
+          normalizePastDueCategoryValue(row && row.Past_Due_Category) ===
+            ">90 Days"
+        );
+      }
+
+      function getCovenantAsOfDate(rows) {
+        const src = rows || [];
+        for (let i = 0; i < src.length; i++) {
+          const d = parseDate(src[i].As_Of_Date || src[i].Report_Date);
+          if (d) {
+            d.setHours(0, 0, 0, 0);
+            return d;
+          }
+        }
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return today;
+      }
+
+      function formatCovenantDate(value) {
+        const d = parseDate(value);
+        if (!d) return "—";
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return d.getFullYear() + "-" + mm + "-" + dd;
+      }
+
+      function isCovenantDueThisMonth(row, asOf) {
+        const due = parseDate(row && row.Covenant_Due_Date);
+        if (!due || !asOf) return false;
+        return (
+          due.getFullYear() === asOf.getFullYear() &&
+          due.getMonth() === asOf.getMonth()
+        );
+      }
+
+      function covenantDaysFromAsOf(dueValue, asOf) {
+        const due = parseDate(dueValue);
+        if (!due || !asOf) return null;
+        const a = new Date(asOf);
+        a.setHours(0, 0, 0, 0);
+        due.setHours(0, 0, 0, 0);
+        return Math.round((due.getTime() - a.getTime()) / 86400000);
+      }
+
+      const COMING_DUE_BUCKET_LABELS = [
+        "1-45 Days",
+        "46-60 Days",
+        "61-90 Days",
+        "90+ Days",
+      ];
+      const COMING_DUE_BUCKET_COLORS = [
+        "#15803d",
+        "#16a34a",
+        "#22c55e",
+        "#4ade80",
+      ];
+
+      function comingDueDaysBucket(days) {
+        if (days == null || isNaN(days)) return null;
+        const n = Math.max(0, Number(days));
+        if (n <= 45) return "1-45 Days";
+        if (n <= 60) return "46-60 Days";
+        if (n <= 90) return "61-90 Days";
+        return "90+ Days";
+      }
+
+      function comingDueBucketForRow(row, asOf) {
+        const daysUntil = covenantDaysFromAsOf(
+          row && row.Covenant_Due_Date,
+          asOf
+        );
+        return comingDueDaysBucket(
+          daysUntil == null ? null : Math.max(0, daysUntil)
+        );
+      }
+
+      function buildComingDueBucketCounts(rows, asOf) {
+        const counts = {
+          "1-45 Days": 0,
+          "46-60 Days": 0,
+          "61-90 Days": 0,
+          "90+ Days": 0,
+        };
+        (rows || []).forEach((row) => {
+          const bucket = comingDueBucketForRow(row, asOf);
+          if (bucket) counts[bucket]++;
+        });
+        return counts;
+      }
+
+      function buildComingDueBucketsByRegion(rows, asOf) {
+        const regions = ["APAC", "EMEA", "NAM", "LATAM"];
+        const data = {};
+        regions.forEach((r) => {
+          data[r] = {
+            "1-45 Days": 0,
+            "46-60 Days": 0,
+            "61-90 Days": 0,
+            "90+ Days": 0,
+          };
+        });
+        (rows || []).forEach((row) => {
+          const region = String((row && row.Region) || "")
+            .trim()
+            .toUpperCase();
+          if (!data[region]) return;
+          const bucket = comingDueBucketForRow(row, asOf);
+          if (bucket) data[region][bucket]++;
+        });
+        return data;
+      }
+
+      function buildUpcomingWindowCounts(rows, asOf) {
+        const windows = { next7: 0, next30: 0, next60: 0, next90: 0 };
+        (rows || []).forEach((row) => {
+          const days = covenantDaysFromAsOf(row && row.Covenant_Due_Date, asOf);
+          if (days == null || days < 0) return;
+          if (days <= 7) windows.next7++;
+          if (days <= 30) windows.next30++;
+          if (days <= 60) windows.next60++;
+          if (days <= 90) windows.next90++;
+        });
+        return windows;
+      }
+
+      function buildUpcomingDueTimeline(rows) {
+        const map = {};
+        (rows || []).forEach((row) => {
+          const d = parseDate(row && row.Covenant_Due_Date);
+          if (!d) return;
+          const key =
+            d.getFullYear() +
+            "-" +
+            String(d.getMonth() + 1).padStart(2, "0");
+          map[key] = (map[key] || 0) + 1;
+        });
+        const keys = Object.keys(map).sort();
+        return {
+          keys,
+          labels: keys.map((k) => {
+            const parts = k.split("-");
+            const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, 1);
+            return dt.toLocaleString("en-US", {
+              month: "short",
+              year: "numeric",
+            });
+          }),
+          counts: keys.map((k) => map[k]),
+        };
+      }
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function setCovInsight(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text || "";
+      }
+
+      function covChartHeight(el) {
+        const h = el && el.clientHeight ? el.clientHeight : 0;
+        return Math.max(h, 300);
+      }
+
       function updateCovenantTopMetrics() {
         // Cards are counted directly from the filtered Excel rows (single source of truth)
         const dataSource =
@@ -347,33 +630,71 @@
         dataSource.forEach((row) => {
           if (isCovenantPastDue(row)) pastDue++;
           else if (isCovenantComingDue(row)) comingDue++;
-
           const key = getCovenantRelationshipKey(row);
           if (key) rels.add(key);
         });
 
-        const totalActive = dataSource.length; // Total Active = all rows in filtered file
+        const totalActive = dataSource.length;
+        const actionNeeded = pastDue;
+        const actionPct =
+          totalActive > 0 ? ((actionNeeded / totalActive) * 100).toFixed(1) : "0.0";
+        const upPct =
+          totalActive > 0 ? ((comingDue / totalActive) * 100).toFixed(1) : "0.0";
 
-        const pastEl = document.getElementById("covMetricPastDue");
         const comingEl = document.getElementById("covMetricComingDue");
         const totalEl = document.getElementById("covMetricTotal");
         const relEl = document.getElementById("covMetricRelationships");
-        if (pastEl) pastEl.textContent = pastDue.toLocaleString();
+        const actionEl = document.getElementById("covMetricActionNeeded");
         if (comingEl) comingEl.textContent = comingDue.toLocaleString();
         if (totalEl) totalEl.textContent = totalActive.toLocaleString();
         if (relEl) relEl.textContent = rels.size.toLocaleString();
+        if (actionEl) actionEl.textContent = actionNeeded.toLocaleString();
+
+        setCovInsight(
+          "covMetricTotalSub",
+          totalActive
+            ? actionNeeded.toLocaleString() +
+                " of " +
+                totalActive.toLocaleString() +
+                " are Past Due"
+            : "Filtered file"
+        );
+        setCovInsight(
+          "covMetricActionSub",
+          actionNeeded ? actionPct + "% of total" : "Past Due only"
+        );
+        setCovInsight(
+          "covMetricComingDueSub",
+          comingDue ? upPct + "% of total" : "Coming Due"
+        );
+        setCovInsight(
+          "covMetricRelationshipsSub",
+          rels.size
+            ? (totalActive / Math.max(rels.size, 1)).toFixed(1) +
+                " per relationship"
+            : "Unique Relationship ID"
+        );
       }
 
       function buildCovenantDetailsGroupedRows(statusFilter, search) {
         const dataSource = getCovenantPageDataSource();
-        const isPastDue = statusFilter === "pastDue";
-        // One row per covenant — do NOT group/aggregate by Relationship_ID
-        let rows = [];
+        const filter = statusFilter || "actionNeeded";
+        const isPastDue = filter !== "comingDue" && filter !== "upcoming";
+        const asOf = getCovenantAsOfDate(dataSource);
+        const detailedTableData = {};
+
+        const addToBucket = (entry, days) => {
+          if (days == null || isNaN(days)) return;
+          const n = Number(days);
+          if (n <= 45) entry.days_1_45++;
+          else if (n <= 60) entry.days_46_60++;
+          else if (n <= 90) entry.days_61_90++;
+          else entry.days_90_plus++;
+        };
 
         dataSource.forEach((row) => {
           const isPast = isCovenantPastDue(row);
           const isComing = isCovenantComingDue(row);
-
           if (isPastDue && !isPast) return;
           if (!isPastDue && !isComing) return;
 
@@ -388,50 +709,48 @@
             row.Lead_Underwriter || row.Underwriter || "Unknown";
           const region =
             String(row.Region || "Unknown").trim().toUpperCase() || "Unknown";
+          const key = relationshipID + "|" + underwriter + "|" + region;
 
-          const entry = {
-            relationshipID,
-            relationshipName,
-            underwriter,
-            region,
-            days_1_45: 0,
-            days_46_60: 0,
-            days_61_90: 0,
-            days_90_plus: 0,
-            coming_due: 0,
-            nextDueDate: row.Covenant_Due_Date || null,
-            frequency: row.Periodic_Frequency || row.Frequency || null,
-            covenantNumber: row.Covenant_Number || "",
-            productProgram: getCovenantProductProgram(row),
-          };
+          if (!detailedTableData[key]) {
+            detailedTableData[key] = {
+              relationshipID,
+              relationshipName,
+              underwriter,
+              region,
+              days_1_45: 0,
+              days_46_60: 0,
+              days_61_90: 0,
+              days_90_plus: 0,
+            };
+          }
 
           if (isPast) {
-            const category = String(row.Past_Due_Category || "").trim();
-            const days = parseFloat(row.Days_Past_Due);
+            const category = normalizePastDueCategoryValue(row.Past_Due_Category);
             if (
               category === "0-30 Days" ||
               category === "31-45 Days" ||
               category === "1-45 Days"
             ) {
-              entry.days_1_45 = 1;
+              detailedTableData[key].days_1_45++;
             } else if (category === "46-60 Days") {
-              entry.days_46_60 = 1;
+              detailedTableData[key].days_46_60++;
             } else if (category === "61-90 Days") {
-              entry.days_61_90 = 1;
+              detailedTableData[key].days_61_90++;
             } else if (category === ">90 Days" || category === "90+ Days") {
-              entry.days_90_plus = 1;
-            } else if (!isNaN(days) && days > 0) {
-              if (days <= 45) entry.days_1_45 = 1;
-              else if (days <= 60) entry.days_46_60 = 1;
-              else if (days <= 90) entry.days_61_90 = 1;
-              else entry.days_90_plus = 1;
+              detailedTableData[key].days_90_plus++;
+            } else {
+              addToBucket(detailedTableData[key], parseFloat(row.Days_Past_Due));
             }
           } else {
-            entry.coming_due = 1;
+            const bucket = comingDueBucketForRow(row, asOf);
+            if (bucket === "1-45 Days") detailedTableData[key].days_1_45++;
+            else if (bucket === "46-60 Days") detailedTableData[key].days_46_60++;
+            else if (bucket === "61-90 Days") detailedTableData[key].days_61_90++;
+            else if (bucket === "90+ Days") detailedTableData[key].days_90_plus++;
           }
-
-          rows.push(entry);
         });
+
+        let rows = Object.values(detailedTableData);
 
         if (search) {
           rows = rows.filter((row) => {
@@ -440,10 +759,6 @@
               row.relationshipName,
               row.underwriter,
               row.region,
-              row.nextDueDate,
-              row.frequency,
-              row.covenantNumber,
-              row.productProgram,
             ]
               .map((v) => String(v || "").toLowerCase())
               .join(" ");
@@ -453,27 +768,39 @@
 
         rows.sort((a, b) => {
           if (isPastDue) {
-            const aSevere = a.days_90_plus * 1000 + a.days_61_90 * 100 + a.days_46_60 * 10 + a.days_1_45;
-            const bSevere = b.days_90_plus * 1000 + b.days_61_90 * 100 + b.days_46_60 * 10 + b.days_1_45;
-            return bSevere - aSevere;
+            if (b.days_90_plus !== a.days_90_plus)
+              return b.days_90_plus - a.days_90_plus;
+            if (b.days_61_90 !== a.days_61_90) return b.days_61_90 - a.days_61_90;
+            if (b.days_46_60 !== a.days_46_60) return b.days_46_60 - a.days_46_60;
+            return b.days_1_45 - a.days_1_45;
           }
-          return String(a.nextDueDate || "").localeCompare(String(b.nextDueDate || ""));
+          if (b.days_1_45 !== a.days_1_45) return b.days_1_45 - a.days_1_45;
+          if (b.days_46_60 !== a.days_46_60) return b.days_46_60 - a.days_46_60;
+          if (b.days_61_90 !== a.days_61_90) return b.days_61_90 - a.days_61_90;
+          return b.days_90_plus - a.days_90_plus;
         });
 
         return rows;
       }
 
-      function updateCovenantDetailsTableHeader(isPastDue) {
+      function updateCovenantDetailsTableHeader() {
         const headerEl = document.getElementById("covenantDetailsTableHeader");
         const subtitleEl = document.getElementById("covenantDetailsTableSubtitle");
+        const filter = window.covenantDetailsFilter || "actionNeeded";
+        const isComing = filter === "comingDue" || filter === "upcoming";
+        const titleEl = document.getElementById("covenantDetailsTableTitle");
+        if (titleEl) {
+          titleEl.textContent = isComing
+            ? "Coming Due Covenants"
+            : "Past Due Covenants";
+        }
         if (subtitleEl) {
-          subtitleEl.textContent = isPastDue
-            ? "Comprehensive breakdown with aging buckets"
-            : "Comprehensive breakdown of covenants coming due";
+          subtitleEl.textContent = isComing
+            ? "Coming Due breakdown by days until Covenant Due Date"
+            : "Comprehensive breakdown with aging buckets";
         }
         if (!headerEl) return;
-        if (isPastDue) {
-          headerEl.innerHTML = `
+        headerEl.innerHTML = `
             <th class="px-6 py-4 text-left text-sm font-medium whitespace-nowrap text-gray-500">Relationship ID</th>
             <th class="px-6 py-4 text-left text-sm font-medium whitespace-nowrap text-gray-500">Relationship Name</th>
             <th class="px-6 py-4 text-left text-sm font-medium whitespace-nowrap text-gray-500">Underwriter</th>
@@ -483,17 +810,6 @@
             <th class="px-6 py-4 text-center text-sm font-medium whitespace-nowrap text-gray-500">61-90 Days</th>
             <th class="px-6 py-4 text-center text-sm font-medium whitespace-nowrap text-gray-500">90+ Days</th>
           `;
-        } else {
-          headerEl.innerHTML = `
-            <th class="px-6 py-4 text-left text-sm font-medium whitespace-nowrap text-gray-500">Relationship ID</th>
-            <th class="px-6 py-4 text-left text-sm font-medium whitespace-nowrap text-gray-500">Relationship Name</th>
-            <th class="px-6 py-4 text-left text-sm font-medium whitespace-nowrap text-gray-500">Underwriter</th>
-            <th class="px-6 py-4 text-center text-sm font-medium whitespace-nowrap text-gray-500">Region</th>
-            <th class="px-6 py-4 text-center text-sm font-medium whitespace-nowrap text-gray-500">Coming Due</th>
-            <th class="px-6 py-4 text-center text-sm font-medium whitespace-nowrap text-gray-500">Due Date</th>
-            <th class="px-6 py-4 text-center text-sm font-medium whitespace-nowrap text-gray-500">Frequency</th>
-          `;
-        }
       }
 
       function updateCovenantDetailsTablePagination() {
@@ -533,23 +849,23 @@
         if (!tbody) return;
 
         const state = window.covenantDetailsTableState;
-        const statusFilter = window.covenantDetailsFilter || "pastDue";
-        const isPastDue = statusFilter === "pastDue";
+        const filter = window.covenantDetailsFilter || "actionNeeded";
+        const isPastDue = filter !== "comingDue" && filter !== "upcoming";
         const rows = state.rows || [];
         const perPage = state.perPage || 10;
         const totalPages = Math.max(1, Math.ceil(rows.length / perPage) || 1);
         const startIndex = (state.page - 1) * perPage;
         const pageRows = rows.slice(startIndex, startIndex + perPage);
-        const colSpan = isPastDue ? 8 : 7;
+        const colSpan = 8;
         const isLastPage = state.page >= totalPages;
 
-        updateCovenantDetailsTableHeader(isPastDue);
+        updateCovenantDetailsTableHeader();
         updateCovenantDetailsTablePagination();
 
         if (pageRows.length === 0) {
           tbody.innerHTML = generateTableEmptyStateRow(
             colSpan,
-            "Covenant Details by Relationship & Underwriter"
+            isPastDue ? "Past Due Covenants" : "Coming Due Covenants"
           );
           return;
         }
@@ -561,58 +877,59 @@
           LATAM: "bg-purple-50 text-purple-600",
         };
 
+        const comingDuePill =
+          "bg-green-100 text-green-700 rounded-full px-2 py-0.5 text-xs font-medium";
+        const pastDuePills = {
+          days_1_45:
+            "bg-green-100 text-green-700 rounded-full px-2 py-0.5 text-xs font-medium",
+          days_46_60:
+            "bg-yellow-100 text-yellow-700 rounded-full px-2 py-0.5 text-xs font-medium",
+          days_61_90:
+            "bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 text-xs font-medium",
+          days_90_plus:
+            "bg-red-100 text-red-700 rounded-full px-2 py-0.5 text-xs font-medium",
+        };
+
         const bodyHtml = pageRows
           .map((row) => {
-            const regionColor = regionColors[row.region] || "bg-gray-50 text-gray-600";
-            if (isPastDue) {
-              return `
+            const regionColor =
+              regionColors[row.region] || "bg-gray-50 text-gray-600";
+            const pill145 = isPastDue ? pastDuePills.days_1_45 : comingDuePill;
+            const pill4660 = isPastDue ? pastDuePills.days_46_60 : comingDuePill;
+            const pill6190 = isPastDue ? pastDuePills.days_61_90 : comingDuePill;
+            const pill90 = isPastDue ? pastDuePills.days_90_plus : comingDuePill;
+            return `
                 <tr class="hover:bg-gray-50">
-                  <td class="px-6 py-4 text-left text-sm text-gray-600 whitespace-nowrap">${row.relationshipID}</td>
-                  <td class="px-6 py-4 text-left text-sm font-medium text-gray-900">${row.relationshipName}</td>
-                  <td class="px-6 py-4 text-left text-sm text-gray-700">${row.underwriter}</td>
+                  <td class="px-6 py-4 text-left text-sm text-gray-600 whitespace-nowrap">${escapeHtml(row.relationshipID)}</td>
+                  <td class="px-6 py-4 text-left text-sm font-medium text-gray-900">${escapeHtml(row.relationshipName)}</td>
+                  <td class="px-6 py-4 text-left text-sm text-gray-700">${escapeHtml(row.underwriter)}</td>
                   <td class="px-6 py-4 text-center">
-                    <span class="${regionColor} rounded-full px-2 py-0.5 text-xs font-medium">${row.region}</span>
+                    <span class="${regionColor} rounded-full px-2 py-0.5 text-xs font-medium">${escapeHtml(row.region)}</span>
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <span class="bg-green-100 text-green-700 rounded-full px-2 py-0.5 text-xs font-medium">${row.days_1_45}</span>
+                    <span class="${pill145}">${row.days_1_45}</span>
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <span class="bg-yellow-100 text-yellow-700 rounded-full px-2 py-0.5 text-xs font-medium">${row.days_46_60}</span>
+                    <span class="${pill4660}">${row.days_46_60}</span>
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <span class="bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 text-xs font-medium">${row.days_61_90}</span>
+                    <span class="${pill6190}">${row.days_61_90}</span>
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <span class="bg-red-100 text-red-700 rounded-full px-2 py-0.5 text-xs font-medium">${row.days_90_plus}</span>
+                    <span class="${pill90}">${row.days_90_plus}</span>
                   </td>
                 </tr>`;
-            }
-            return `
-              <tr class="hover:bg-gray-50">
-                <td class="px-6 py-4 text-left text-sm text-gray-600 whitespace-nowrap">${row.relationshipID}</td>
-                <td class="px-6 py-4 text-left text-sm font-medium text-gray-900">${row.relationshipName}</td>
-                <td class="px-6 py-4 text-left text-sm text-gray-700">${row.underwriter}</td>
-                <td class="px-6 py-4 text-center">
-                  <span class="${regionColor} rounded-full px-2 py-0.5 text-xs font-medium">${row.region}</span>
-                </td>
-                <td class="px-6 py-4 text-center">
-                  <span class="bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 text-xs font-medium">${row.coming_due}</span>
-                </td>
-                <td class="px-6 py-4 text-center text-sm text-gray-700">${row.nextDueDate || "N/A"}</td>
-                <td class="px-6 py-4 text-center text-sm text-gray-700">${row.frequency || "N/A"}</td>
-              </tr>`;
           })
           .join("");
 
         let totalsHtml = "";
         if (rows.length > 0 && isLastPage) {
-          if (isPastDue) {
-            const total145 = rows.reduce((sum, row) => sum + row.days_1_45, 0);
-            const total4660 = rows.reduce((sum, row) => sum + row.days_46_60, 0);
-            const total6190 = rows.reduce((sum, row) => sum + row.days_61_90, 0);
-            const total90Plus = rows.reduce((sum, row) => sum + row.days_90_plus, 0);
-            totalsHtml = `
-              <tr class="bg-gray-50 font-semibold border-t-2 border-gray-300">
+          const total145 = rows.reduce((sum, row) => sum + row.days_1_45, 0);
+          const total4660 = rows.reduce((sum, row) => sum + row.days_46_60, 0);
+          const total6190 = rows.reduce((sum, row) => sum + row.days_61_90, 0);
+          const total90Plus = rows.reduce((sum, row) => sum + row.days_90_plus, 0);
+          totalsHtml = `
+              <tr class="font-semibold border-t-2 border-gray-300">
                 <td class="px-6 py-4 text-left text-sm text-gray-900">Total (${rows.length})</td>
                 <td colspan="2" class="px-6 py-4"></td>
                 <td class="px-6 py-4"></td>
@@ -621,17 +938,6 @@
                 <td class="px-6 py-4 text-center text-sm text-gray-900">${total6190}</td>
                 <td class="px-6 py-4 text-center text-sm text-gray-900">${total90Plus}</td>
               </tr>`;
-          } else {
-            const totalComing = rows.reduce((sum, row) => sum + row.coming_due, 0);
-            totalsHtml = `
-              <tr class="bg-gray-50 font-semibold border-t-2 border-gray-300">
-                <td class="px-6 py-4 text-left text-sm text-gray-900">Total (${rows.length})</td>
-                <td colspan="2" class="px-6 py-4"></td>
-                <td class="px-6 py-4"></td>
-                <td class="px-6 py-4 text-center text-sm text-gray-900">${totalComing}</td>
-                <td colspan="2" class="px-6 py-4"></td>
-              </tr>`;
-          }
         }
 
         tbody.innerHTML = bodyHtml + totalsHtml;
@@ -642,7 +948,7 @@
         if (!tbody) return;
 
         if (forceStatus) window.covenantDetailsFilter = forceStatus;
-        const statusFilter = window.covenantDetailsFilter || "pastDue";
+        const statusFilter = window.covenantDetailsFilter || "actionNeeded";
         const searchEl = document.getElementById("covenantDetailsSearch");
         const search = (searchEl && searchEl.value ? searchEl.value : "").trim().toLowerCase();
         const perPageEl = document.getElementById("covenantDetailsTablePerPage");
@@ -667,7 +973,29 @@
           statusFilter,
           search
         );
+        syncCovenantDetailsFilterButtons();
         renderCovenantDetailsTablePage();
+      }
+
+      function syncCovenantDetailsFilterButtons() {
+        const filter = window.covenantDetailsFilter || "actionNeeded";
+        const activeId =
+          filter === "comingDue" || filter === "upcoming"
+            ? "covenantDetailsBtnComingDue"
+            : "covenantDetailsBtnActionNeeded";
+        const base =
+          "px-2.5 py-1.5 text-xs rounded-md transition-all duration-200";
+        [
+          "covenantDetailsBtnActionNeeded",
+          "covenantDetailsBtnComingDue",
+        ].forEach((id) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.className =
+            id === activeId
+              ? base + " bg-white shadow-sm text-gray-900 font-medium"
+              : base + " text-gray-600";
+        });
       }
 
       function filterCovenantDetailsTable(status) {
@@ -703,6 +1031,7 @@
         const vt = viewType || window.currentCovenantViewType || "pastDue";
         updateCovenantTopMetrics();
         updateCovenantRegionalTable(vt);
+        updateCovenantDashboardViz();
         renderCovenantDetailsTable(null, true);
       }
 
@@ -936,10 +1265,23 @@
         }
 
         const now = new Date();
+        const asOf =
+          typeof getCovenantAsOfDate === "function"
+            ? getCovenantAsOfDate(
+                (typeof covenantsData !== "undefined" && covenantsData) ||
+                  window.covenantsData ||
+                  []
+              )
+            : null;
+        const anchor = asOf || now;
         const count = 420;
         for (let i = 0; i < count; i++) {
-          const monthOffset = i % 3; // last 3 months
-          const d = new Date(now.getFullYear(), now.getMonth() - monthOffset, 5 + (i % 20));
+          const monthOffset = i % 3; // 3 visible months ending at As Of Date
+          const d = new Date(
+            anchor.getFullYear(),
+            anchor.getMonth() - monthOffset,
+            5 + (i % 20)
+          );
           const compliance = compliances[i % compliances.length];
           const forced =
             i % 7 === 0 ? "Deferred" : i % 7 === 1 ? "Waived" : i % 11 === 0 ? "Deleted" : compliance;
@@ -1031,16 +1373,9 @@
           monthMap.get(key)[region] += 1;
         });
 
-        // Prefer last 3 calendar months relative to latest activity date
+        // Last 3 months that actually appear in the filtered (visible) activity
         let months = Array.from(monthMap.keys()).sort();
-        const anchorKey = months.length ? months[months.length - 1] : monthKey(new Date());
-        const [ay, am] = anchorKey.split("-").map(Number);
-        months = [2, 1, 0].map((offset) => {
-          const d = new Date(ay, am - 1 - offset, 1);
-          const k = monthKey(d);
-          if (!monthMap.has(k)) monthMap.set(k, { Americas: 0, EMEA: 0, APAC: 0 });
-          return k;
-        });
+        months = months.slice(-3);
 
         const matrix = {
           months,
@@ -1072,17 +1407,190 @@
       const COV_ACTIVITY_VIEW_META = {
         deferred: {
           title: "Deferred Covenants",
-          subtitle: "Monthly deferred covenants by region",
+          subtitle: "Across 3 months from visible months",
         },
         waived: {
           title: "Waived Covenants",
-          subtitle: "Monthly waived covenants by region",
+          subtitle: "Across 3 months from visible months",
         },
         deleted: {
           title: "Deleted & Deactivated Covenants",
-          subtitle: "Monthly deleted and deactivated covenants by region",
+          subtitle: "Across 3 months from visible months",
         },
       };
+
+      function covStackedBarPlotOptions(extra) {
+        return {
+          bar: Object.assign(
+            {
+              horizontal: false,
+              columnWidth: "45%",
+              borderRadius: 8,
+              borderRadiusApplication: "end",
+              borderRadiusWhenStacked: "last",
+              dataLabels: {
+                total: {
+                  enabled: true,
+                  offsetY: -8,
+                  style: {
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#111827",
+                  },
+                  formatter: function (val) {
+                    return val;
+                  },
+                },
+              },
+            },
+            extra || {}
+          ),
+        };
+      }
+
+      function covStackedBarDataLabels() {
+        return {
+          enabled: true,
+          formatter: function (val) {
+            return val > 0 ? val : "";
+          },
+          style: {
+            fontSize: "11px",
+            fontWeight: 600,
+            colors: ["#ffffff"],
+          },
+          dropShadow: { enabled: false },
+        };
+      }
+
+      function covSingleBarPlotOptions(opts) {
+        const horizontal = !!(opts && opts.horizontal);
+        return {
+          bar: {
+            horizontal,
+            distributed: !!(opts && opts.distributed),
+            borderRadius: 8,
+            borderRadiusApplication: "end",
+            columnWidth: (opts && opts.columnWidth) || "45%",
+            barHeight: (opts && opts.barHeight) || "58%",
+            dataLabels: {
+              position: "top",
+              hideOverflowingLabels: false,
+            },
+          },
+        };
+      }
+
+      function covSingleBarDataLabels(opts) {
+        const horizontal = !!(opts && opts.horizontal);
+        return {
+          enabled: true,
+          formatter: function (val) {
+            const n = Number(val);
+            if (!n || n < 0) return "";
+            return Math.round(n);
+          },
+          offsetX: horizontal ? 8 : 0,
+          offsetY: horizontal ? 0 : -16,
+          textAnchor: horizontal ? "start" : "middle",
+          style: {
+            fontSize: "13px",
+            fontWeight: 700,
+            colors: ["#111827"],
+          },
+          dropShadow: { enabled: false },
+          background: { enabled: false },
+        };
+      }
+
+      function covHexToRgb(hex) {
+        const h = String(hex || "").replace("#", "");
+        if (h.length !== 6) return { r: 54, g: 65, b: 245 };
+        return {
+          r: parseInt(h.slice(0, 2), 16),
+          g: parseInt(h.slice(2, 4), 16),
+          b: parseInt(h.slice(4, 6), 16),
+        };
+      }
+
+      function covRgbToHex(r, g, b) {
+        return (
+          "#" +
+          [r, g, b]
+            .map((n) =>
+              Math.round(Math.max(0, Math.min(255, n)))
+                .toString(16)
+                .padStart(2, "0")
+            )
+            .join("")
+        );
+      }
+
+      function covMixTowardWhite(hex, amount) {
+        const c = covHexToRgb(hex);
+        const t = Math.max(0, Math.min(1, Number(amount) || 0));
+        return covRgbToHex(
+          c.r + (255 - c.r) * t,
+          c.g + (255 - c.g) * t,
+          c.b + (255 - c.b) * t
+        );
+      }
+
+      function covCountIntensityColors(counts, baseHex) {
+        const nums = (counts || []).map((n) => Number(n) || 0);
+        const base = baseHex || "#3641f5";
+        if (!nums.length) return [base];
+        const positives = nums.filter((n) => n > 0);
+        const max = positives.length ? Math.max.apply(null, positives) : 1;
+        const min = positives.length ? Math.min.apply(null, positives) : 0;
+        return nums.map((n) => {
+          if (n <= 0) return covMixTowardWhite(base, 0.72);
+          const ratio = max === min ? 1 : (n - min) / (max - min);
+          return covMixTowardWhite(base, 0.58 * (1 - ratio));
+        });
+      }
+
+      function covHBarValueMax(counts) {
+        const nums = (counts || [])
+          .map(Number)
+          .filter((n) => !isNaN(n) && n > 0);
+        if (!nums.length) return undefined;
+        const max = Math.max.apply(null, nums);
+        return Math.ceil(max * 1.28);
+      }
+
+      function covHBarXAxis(labels, counts, extra) {
+        const cfg = {
+          categories: labels || [],
+          min: 0,
+          forceNiceScale: false,
+          decimalsInFloat: 0,
+          labels: {
+            show: true,
+            style: { fontSize: "11px", colors: "#6B7280" },
+            formatter: function (val) {
+              const n = Number(val);
+              if (isNaN(n)) return String(val == null ? "" : val);
+              if (n < 0) return "0";
+              return String(Math.round(n));
+            },
+          },
+        };
+        const max = covHBarValueMax(counts);
+        if (max != null) cfg.max = max;
+        return Object.assign(cfg, extra || {});
+      }
+
+      function covHBarGrid(extra) {
+        return Object.assign(
+          {
+            borderColor: "#F3F4F6",
+            strokeDashArray: 4,
+            padding: { left: 8, right: 52, top: 8, bottom: 0 },
+          },
+          extra || {}
+        );
+      }
 
       function createCovenantActivityChart(matrix) {
         if (typeof ApexCharts === "undefined") return;
@@ -1274,7 +1782,7 @@
           }
         }
         if (subtitleEl) {
-          subtitleEl.textContent = `Regional breakdown of ${statusWord} covenant activity`;
+          subtitleEl.textContent = `Regional breakdown of ${statusWord} activity across 3 months from visible months`;
         }
 
         const monthLabels = matrix.labels || [];
@@ -1406,21 +1914,19 @@
         if (!hasAnyFilter) return source.slice();
 
         const productFields = [
+          "Product Program Name",
+          "Product_Program_Name",
           "Product_Program",
           "Product Program",
-          "Product_Program_Name",
-          "Product Program Name",
         ];
         const uwFields = [
+          "Underwriter",
           "Lead_Underwriter",
           "Lead Underwriter",
-          "Underwriter",
         ];
         const teamFields = [
-          "Underwriting_Team_Lead",
           "Underwriting Team Lead",
-          "Team_Lead",
-          "Team Lead",
+          "Underwriting_Team_Lead",
         ];
         const products = hasProduct
           ? selectedProducts.map((p) => String(p).toLowerCase())
@@ -1655,9 +2161,12 @@
               count: 0,
               regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
               statusBreakdown: { pastDue: 0, comingDue: 0, other: 0 },
+              relationships: new Set(),
             };
           }
           byProduct[product].count++;
+          const relKey = getCovenantRelationshipKey(row);
+          if (relKey) byProduct[product].relationships.add(relKey);
           if (byProduct[product].regionalBreakdown[region] !== undefined) {
             byProduct[product].regionalBreakdown[region]++;
           }
@@ -1744,19 +2253,17 @@
                 chart: {
                   type: "bar",
                   stacked: true,
-                  height: 320,
+                  height: covChartHeight(
+                    document.getElementById("covInsightAgingHost") || agingEl
+                  ),
+                  width: "100%",
                   toolbar: { show: false },
                   fontFamily: "Outfit, sans-serif",
+                  parentHeightOffset: 0,
                 },
-                colors: ["#dde9ff", "#7592ff", "#3641f5"],
-                plotOptions: {
-                  bar: {
-                    horizontal: false,
-                    borderRadius: 4,
-                    columnWidth: "45%",
-                  },
-                },
-                dataLabels: { enabled: false },
+                colors: ["#fecaca", "#f87171", "#dc2626"],
+                plotOptions: covStackedBarPlotOptions(),
+                dataLabels: covStackedBarDataLabels(),
                 xaxis: {
                   categories: regionsWithData,
                   labels: { style: { fontSize: "12px", colors: "#6B7280" } },
@@ -1769,7 +2276,7 @@
                   horizontalAlign: "left",
                   fontSize: "12px",
                 },
-                grid: { borderColor: "#F3F4F6", strokeDashArray: 4 },
+                grid: { borderColor: "#F3F4F6", strokeDashArray: 4, padding: { top: 16 } },
                 tooltip: {
                   enabled: true,
                   theme: "light",
@@ -1797,7 +2304,15 @@
                       title: region,
                       subtitle: "Aging severity by region",
                       count,
-                      total: totalCovenants,
+                      total: pastDueRows.length,
+                      relationships: countUniqueRelationships(
+                        pastDueRows.filter(
+                          (row) =>
+                            String(row.Region || "")
+                              .trim()
+                              .toUpperCase() === region
+                        )
+                      ),
                       breakdownTitle: "Aging Buckets",
                       breakdownRows,
                       col1: "Bucket",
@@ -1808,6 +2323,39 @@
               }
             );
             covInsightChartInstances.agingByRegion.render();
+            const pdTotal = pastDueRows.length;
+            let worstRegion = "";
+            let worstCount = 0;
+            regionsWithData.forEach((r) => {
+              const d = regionalAgingData[r] || {};
+              const n =
+                (d["1-30"] || 0) +
+                (d["31-45"] || 0) +
+                (d["46-60"] || 0) +
+                (d["61-90"] || 0) +
+                (d[">90"] || 0);
+              if (n > worstCount) {
+                worstCount = n;
+                worstRegion = r;
+              }
+            });
+            const gt90All = regionsWithData.reduce(
+              (s, r) => s + ((regionalAgingData[r] || {})[">90"] || 0),
+              0
+            );
+            setCovInsight(
+              "covInsightAgingByRegionInsight",
+              worstRegion && pdTotal
+                ? worstRegion +
+                    " has the most past-due covenants (" +
+                    worstCount.toLocaleString() +
+                    ", " +
+                    ((worstCount / pdTotal) * 100).toFixed(1) +
+                    "%). " +
+                    gt90All.toLocaleString() +
+                    " are in the >90 Days bucket."
+                : ""
+            );
             }
           }
         }
@@ -1860,8 +2408,8 @@
               chart: {
                 fontFamily: "Outfit, sans-serif",
                 type: "donut",
-                width: 300,
-                height: 300,
+                width: 280,
+                height: 280,
               },
               stroke: { show: false },
               plotOptions: {
@@ -1942,16 +2490,341 @@
                     ],
                     col1: "Status",
                     col2: "Count",
+                    relationships:
+                      (data.relationships && data.relationships.size) || 0,
                   });
                 },
               },
             });
             covInsightChartInstances.productDonut.render();
+            const top = displayProducts[0];
+            setCovInsight(
+              "covInsightProductInsight",
+              top && totalCovenants
+                ? top[0] +
+                    " is the largest Product_Program (" +
+                    top[1].count.toLocaleString() +
+                    ", " +
+                    ((top[1].count / totalCovenants) * 100).toFixed(1) +
+                    "%)."
+                : ""
+            );
           }
         }
       }
 
       window.updateCovenantInsightsSection = updateCovenantInsightsSection;
+
+      const covDashChartInstances = {
+        actionByRegion: null,
+        pastDueAging: null,
+        upcomingProduct: null,
+        comingDueMonth: null,
+      };
+
+      function destroyDashChart(key) {
+        if (covDashChartInstances[key]) {
+          try {
+            covDashChartInstances[key].destroy();
+          } catch (e) {
+            /* ignore */
+          }
+          covDashChartInstances[key] = null;
+        }
+      }
+
+      function renderDashEmpty(hostId, title) {
+        const host = document.getElementById(hostId);
+        if (host && typeof renderCenteredEmptyState === "function") {
+          renderCenteredEmptyState(hostId, title);
+        }
+      }
+
+      function updateCovenantDashboardViz() {
+        if (typeof ApexCharts === "undefined") return;
+        const rows =
+          typeof getCovenantPageDataSource === "function"
+            ? getCovenantPageDataSource() || []
+            : [];
+        const regionOrder = ["APAC", "EMEA", "NAM", "LATAM"];
+        const pastDueRows = rows.filter((r) => isCovenantPastDue(r));
+        const upcomingRows = rows.filter((r) => isCovenantComingDue(r));
+
+        // --- Action Needed by Region (horizontal bar, Past Due only) ---
+        const actionEl = document.getElementById("covChartActionByRegion");
+        if (actionEl) {
+          destroyDashChart("actionByRegion");
+          const byRegion = {};
+          regionOrder.forEach((r) => {
+            byRegion[r] = 0;
+          });
+          pastDueRows.forEach((row) => {
+            const region = String(row.Region || "").trim().toUpperCase();
+            if (byRegion[region] === undefined) return;
+            byRegion[region]++;
+          });
+          const regionsWithData = regionOrder.filter((r) => byRegion[r] > 0);
+          const relsByRegion = {};
+          regionsWithData.forEach((r) => {
+            relsByRegion[r] = new Set();
+          });
+          pastDueRows.forEach((row) => {
+            const region = String(row.Region || "").trim().toUpperCase();
+            if (!relsByRegion[region]) return;
+            const key = getCovenantRelationshipKey(row);
+            if (key) relsByRegion[region].add(key);
+          });
+          const host = document.getElementById("covChartActionByRegionHost");
+          if (regionsWithData.length === 0) {
+            renderDashEmpty("covChartActionByRegionHost", "Action Needed by Region");
+          } else {
+            if (host && host.classList.contains("covenant-empty-host")) {
+              host.classList.remove("covenant-empty-host");
+              if (!document.getElementById("covChartActionByRegion")) {
+                host.innerHTML =
+                  '<div id="covChartActionByRegion" class="cov-chart-fill w-full h-full"></div>';
+              }
+            }
+            const liveEl = document.getElementById("covChartActionByRegion");
+            if (liveEl) {
+              const pdData = regionsWithData.map((r) => byRegion[r]);
+              const actionTotal = pdData.reduce((s, n) => s + n, 0);
+              covDashChartInstances.actionByRegion = new ApexCharts(liveEl, {
+                series: [{ name: "Action Needed", data: pdData }],
+                chart: {
+                  type: "bar",
+                  height: covChartHeight(host || liveEl),
+                  width: "100%",
+                  toolbar: { show: false },
+                  fontFamily: "Outfit, sans-serif",
+                  parentHeightOffset: 0,
+                },
+                colors: ["#dc2626"],
+                plotOptions: covSingleBarPlotOptions({
+                  horizontal: true,
+                  barHeight: "58%",
+                }),
+                dataLabels: covSingleBarDataLabels({ horizontal: true }),
+                xaxis: covHBarXAxis(regionsWithData, pdData),
+                yaxis: {
+                  labels: { style: { fontSize: "12px", colors: "#6B7280" } },
+                },
+                legend: { show: false },
+                grid: covHBarGrid(),
+                tooltip: {
+                  enabled: true,
+                  custom: function ({ series, dataPointIndex }) {
+                    const region = regionsWithData[dataPointIndex];
+                    const pd = (series[0] && series[0][dataPointIndex]) || 0;
+                    return buildCovenantStyleTooltip({
+                      title: region,
+                      subtitle: "Action Needed (Past Due) by region",
+                      count: pd,
+                      total: actionTotal,
+                      relationships:
+                        (relsByRegion[region] && relsByRegion[region].size) ||
+                        0,
+                      breakdownTitle: "Status",
+                      breakdownRows: [{ label: "Past Due", value: pd }],
+                    });
+                  },
+                },
+              });
+              covDashChartInstances.actionByRegion.render();
+              const topRegion = regionsWithData
+                .slice()
+                .sort((a, b) => byRegion[b] - byRegion[a])[0];
+              const topCount = topRegion ? byRegion[topRegion] : 0;
+              setCovInsight(
+                "covChartActionByRegionInsight",
+                topRegion && actionTotal
+                  ? topRegion +
+                      " has the most Action Needed covenants (" +
+                      topCount.toLocaleString() +
+                      ", " +
+                      ((topCount / actionTotal) * 100).toFixed(1) +
+                      "% of Past Due)."
+                  : ""
+              );
+            }
+          }
+        }
+
+        // --- Past Due aging (vertical bar from Past Due Category) ---
+        const agingEl = document.getElementById("covChartPastDueAging");
+        if (agingEl) {
+          destroyDashChart("pastDueAging");
+          const order = [
+            "0-30 Days",
+            "31-45 Days",
+            "46-60 Days",
+            "61-90 Days",
+            ">90 Days",
+          ];
+          const counts = {};
+          order.forEach((k) => (counts[k] = 0));
+          pastDueRows.forEach((row) => {
+            const cat = normalizePastDueCategoryValue(row.Past_Due_Category);
+            if (cat === "1-45 Days") counts["0-30 Days"]++;
+            else if (counts[cat] !== undefined) counts[cat]++;
+          });
+          const cats = order.filter((k) => counts[k] > 0);
+          const host = document.getElementById("covChartPastDueAgingHost");
+          if (cats.length === 0) {
+            renderDashEmpty("covChartPastDueAgingHost", "Past Due Aging");
+          } else {
+            if (host) host.classList.remove("covenant-empty-host");
+            const liveEl = document.getElementById("covChartPastDueAging") || agingEl;
+            const colorMap = {
+              "0-30 Days": "#fecaca",
+              "31-45 Days": "#fca5a5",
+              "46-60 Days": "#f87171",
+              "61-90 Days": "#ef4444",
+              ">90 Days": "#b91c1c",
+            };
+            const totalPd = cats.reduce((s, k) => s + counts[k], 0);
+            covDashChartInstances.pastDueAging = new ApexCharts(liveEl, {
+              series: [{ name: "Past Due", data: cats.map((k) => counts[k]) }],
+              chart: {
+                type: "bar",
+                height: covChartHeight(host || liveEl),
+                width: "100%",
+                toolbar: { show: false },
+                fontFamily: "Outfit, sans-serif",
+                parentHeightOffset: 0,
+              },
+              colors: cats.map((k) => colorMap[k]),
+              plotOptions: covSingleBarPlotOptions({
+                distributed: true,
+                columnWidth: "48%",
+              }),
+              dataLabels: covSingleBarDataLabels(),
+              legend: { show: false },
+              xaxis: {
+                categories: cats,
+                labels: { style: { fontSize: "11px", colors: "#6B7280" } },
+              },
+              yaxis: {
+                labels: { style: { fontSize: "11px", colors: "#6B7280" } },
+              },
+              grid: { borderColor: "#F3F4F6", strokeDashArray: 4, padding: { top: 18 } },
+              grid: { borderColor: "#F3F4F6", strokeDashArray: 4 },
+              tooltip: {
+                enabled: true,
+                custom: function ({ series, dataPointIndex }) {
+                  const label = cats[dataPointIndex];
+                  const count = (series[0] && series[0][dataPointIndex]) || 0;
+                  return buildCovenantStyleTooltip({
+                    title: label,
+                    subtitle: "Past Due Category",
+                    count: count,
+                    total: totalPd,
+                    breakdownTitle: "Share of past due",
+                    breakdownRows: [{ label: label, value: count }],
+                  });
+                },
+              },
+            });
+            covDashChartInstances.pastDueAging.render();
+            const worst = cats.slice().sort((a, b) => counts[b] - counts[a])[0];
+            setCovInsight(
+              "covChartPastDueAgingInsight",
+              worst && totalPd
+                ? worst +
+                    " is the largest past-due bucket (" +
+                    counts[worst].toLocaleString() +
+                    ", " +
+                    ((counts[worst] / totalPd) * 100).toFixed(1) +
+                    "%)."
+                : ""
+            );
+          }
+        }
+
+        // --- Coming Due by Month (vertical bar, green) ---
+        const monthEl = document.getElementById("covChartComingDueMonth");
+        if (monthEl) {
+          destroyDashChart("comingDueMonth");
+          const timeline = buildUpcomingDueTimeline(upcomingRows);
+          const host = document.getElementById("covChartComingDueMonthHost");
+          if (!timeline.labels.length) {
+            renderDashEmpty("covChartComingDueMonthHost", "Coming Due by Month");
+          } else {
+            if (host) host.classList.remove("covenant-empty-host");
+            const liveEl = document.getElementById("covChartComingDueMonth") || monthEl;
+            const totalUp = upcomingRows.length;
+            covDashChartInstances.comingDueMonth = new ApexCharts(liveEl, {
+              series: [{ name: "Coming Due", data: timeline.counts }],
+              chart: {
+                type: "bar",
+                height: covChartHeight(host || liveEl),
+                width: "100%",
+                toolbar: { show: false },
+                fontFamily: "Outfit, sans-serif",
+                parentHeightOffset: 0,
+              },
+              colors: ["#16a34a"],
+              plotOptions: covSingleBarPlotOptions({ columnWidth: "46%" }),
+              dataLabels: covSingleBarDataLabels(),
+              xaxis: {
+                categories: timeline.labels,
+                labels: { style: { fontSize: "12px", colors: "#6B7280" } },
+              },
+              yaxis: {
+                labels: { style: { fontSize: "11px", colors: "#6B7280" } },
+              },
+              grid: { borderColor: "#F3F4F6", strokeDashArray: 4, padding: { top: 18 } },
+              grid: { borderColor: "#F3F4F6", strokeDashArray: 4 },
+              tooltip: {
+                enabled: true,
+                custom: function ({ series, dataPointIndex }) {
+                  const label = timeline.labels[dataPointIndex];
+                  const count = (series[0] && series[0][dataPointIndex]) || 0;
+                  return buildCovenantStyleTooltip({
+                    title: label,
+                    subtitle: "Coming Due by Covenant Due Date month",
+                    count: count,
+                    total: totalUp,
+                    relationships: countUniqueRelationships(
+                      upcomingRows.filter((row) => {
+                        const d = parseDate(row && row.Covenant_Due_Date);
+                        if (!d) return false;
+                        const key =
+                          d.getFullYear() +
+                          "-" +
+                          String(d.getMonth() + 1).padStart(2, "0");
+                        return key === (timeline.keys && timeline.keys[dataPointIndex]);
+                      })
+                    ),
+                    breakdownTitle: "Month",
+                    breakdownRows: [{ label: label, value: count }],
+                  });
+                },
+              },
+            });
+            covDashChartInstances.comingDueMonth.render();
+            let peakIdx = 0;
+            timeline.counts.forEach((n, i) => {
+              if (n > timeline.counts[peakIdx]) peakIdx = i;
+            });
+            const peakCount = timeline.counts[peakIdx] || 0;
+            setCovInsight(
+              "covChartComingDueMonthInsight",
+              totalUp && peakCount
+                ? timeline.labels[peakIdx] +
+                    " has the largest Coming Due volume (" +
+                    peakCount.toLocaleString() +
+                    ", " +
+                    ((peakCount / totalUp) * 100).toFixed(1) +
+                    "%)."
+                : ""
+            );
+          }
+        }
+      }
+
+      window.updateCovenantDashboardViz = updateCovenantDashboardViz;
+
 
 
 
@@ -1986,10 +2859,28 @@
       ];
 
       // ===== DATA MODE =====
-      // Covenants: load from Confluence (Covenants_current.xlsx)
-      // Activity (Deferred/Waived/Deleted): keep dummy locally
-      const ENABLE_DUMMY_DATA = false; // false = covenants from Confluence
-      const ENABLE_DUMMY_ACTIVITY = true; // true = activity stays dummy
+      // Covenants: Confluence Excel by default; override for local testing:
+      //   - window.COVENANTS_ENABLE_DUMMY_DATA = true (set before covenants.js)
+      //   - or open page with ?dummy=1
+      // Activity (Deferred/Waived/Deleted): dummy by default
+      const ENABLE_DUMMY_DATA =
+        (typeof window !== "undefined" &&
+          window.COVENANTS_ENABLE_DUMMY_DATA === true) ||
+        (typeof location !== "undefined" &&
+          /(?:\?|&)dummy=1(?:&|$)/.test(String(location.search || ""))) ||
+        false;
+      const ENABLE_DUMMY_ACTIVITY =
+        typeof window !== "undefined" &&
+        window.COVENANTS_ENABLE_DUMMY_ACTIVITY === false
+          ? false
+          : true;
+
+      console.log(
+        "[Covenants] Data mode → covenants:",
+        ENABLE_DUMMY_DATA ? "DUMMY" : "Confluence",
+        "| activity:",
+        ENABLE_DUMMY_ACTIVITY ? "DUMMY" : "Confluence"
+      );
 
       if (ENABLE_DUMMY_DATA) {
         // Generate comprehensive dummy data for testing
@@ -2379,9 +3270,9 @@
           ).getFullYear()}`
         );
 
-        // Add covenants data (100 covenant records with better distribution)
+        // Add covenants data (200 covenant records — richer for expand/KPI testing)
         covenantsData = [];
-        for (let i = 1; i <= 100; i++) {
+        for (let i = 1; i <= 200; i++) {
           const region = regions[i % regions.length];
           // Better distribution: 40% Past Due, 60% Coming Due
           const isPastDue = i % 5 < 2;
@@ -2397,12 +3288,26 @@
             else if (daysOverdue <= 90) category = "61-90 Days";
             else category = ">90 Days";
           } else {
-            category = "Coming Due";
+            category = ""; // Coming Due rows have no Past Due Category
           }
 
           const dueDate = isPastDue
             ? new Date(2024, 10, 30 - daysOverdue)
-            : new Date(2024, 11, 15 + (i % 30));
+            : (function () {
+                const bucket = i % 20;
+                if (bucket === 0) return new Date(2024, 10, 30);
+                if (bucket < 5) return new Date(2024, 11, 1 + (i % 7));
+                if (bucket < 12) return new Date(2024, 11, 8 + (i % 22));
+                if (bucket < 17) return new Date(2025, 0, 1 + (i % 28));
+                return new Date(2025, 1, 1 + (i % 28));
+              })();
+
+          const ymd = (d) =>
+            d.getFullYear() +
+            "-" +
+            String(d.getMonth() + 1).padStart(2, "0") +
+            "-" +
+            String(d.getDate()).padStart(2, "0");
 
           // Periodic frequencies that match your data
           const periodicFrequencies = [
@@ -2418,17 +3323,17 @@
           // Calculate 45 days past due date
           const days45PastDue =
             isPastDue && daysOverdue > 45
-              ? new Date(2024, 10, 30 - (daysOverdue - 45))
-                  .toISOString()
-                  .split("T")[0]
+              ? ymd(new Date(2024, 10, 30 - (daysOverdue - 45)))
               : null;
 
           covenantsData.push({
             Report_Date: "2024-11-30",
+            As_Of_Date: "2024-11-30",
             Region: region,
             Origination_Unit: orginationUnits[i % orginationUnits.length],
             Underwriting_Team_Lead: underwriters[i % underwriters.length],
             Lead_Underwriter: underwriters[i % underwriters.length],
+            Underwriter: underwriters[i % underwriters.length],
             Product_Underwriter: underwriters[(i + 1) % underwriters.length],
             OU_Expense_Code: "OU" + ((i % 10) + 1).toString().padStart(3, "0"),
             CU_Expense_Code: "CU" + ((i % 10) + 1).toString().padStart(3, "0"),
@@ -2442,11 +3347,8 @@
             Facility_Type: facilityTypes[i % facilityTypes.length],
             Covenant_Number: "COV2024" + i.toString().padStart(3, "0"),
             Periodic_Frequency: periodicFreq,
-            Covenant_Due_Date: dueDate.toISOString().split("T")[0],
-            Covenant_Deferred_Date:
-              i % 10 === 0
-                ? new Date(2024, 11, 30).toISOString().split("T")[0]
-                : null,
+            Covenant_Due_Date: ymd(dueDate),
+            Covenant_Deferred_Date: i % 10 === 0 ? "2024-12-30" : null,
             Days_Past_Due: daysOverdue,
             Coming_Due_Past_Due: isPastDue ? "Past Due" : "Coming Due",
             Past_Due_Category: category,
@@ -2917,16 +3819,25 @@
         // Covenants: dummy only when ENABLE_DUMMY_DATA; otherwise Confluence
         if (ENABLE_DUMMY_DATA && covenantsData && covenantsData.length > 0) {
           console.log("DUMMY DATA MODE - Using covenant test data");
+          if (typeof hideLoadingOverlay === "function") hideLoadingOverlay();
           setTimeout(() => {
-            populateFilterOptions();
-            updateReportDate();
-            refreshCovenantPageCharts();
-            showNotification(
-              "Success",
-              `Loaded ${covenantsData.length} dummy covenant records for testing`,
-              "success"
-            );
-          }, 100);
+            try {
+              if (typeof populateFilterOptions === "function") populateFilterOptions();
+              if (typeof updateReportDate === "function") updateReportDate();
+              if (typeof refreshCovenantPageCharts === "function") {
+                refreshCovenantPageCharts();
+              }
+              if (typeof showNotification === "function") {
+                showNotification(
+                  "Success",
+                  `Loaded ${covenantsData.length} dummy covenant records for testing`,
+                  "success"
+                );
+              }
+            } catch (e) {
+              console.error("Dummy data bootstrap failed:", e);
+            }
+          }, 150);
         } else {
           console.log("READ-ONLY mode - Loading covenants from Confluence");
           console.log("Page ID:", CONFLUENCE_PAGE_ID);
@@ -2958,20 +3869,19 @@
         }
 
         // Setup search functionality with debouncing (increased for large datasets)
-        document
-          .getElementById("searchInput")
-          .addEventListener("input", function () {
-            // Clear previous timer
+        const searchInputEl = document.getElementById("searchInput");
+        if (searchInputEl) {
+          searchInputEl.addEventListener("input", function () {
             if (searchDebounceTimer) {
               clearTimeout(searchDebounceTimer);
             }
-
-            // Set new timer - wait 500ms after user stops typing (longer for 40K rows)
             searchDebounceTimer = setTimeout(() => {
-              if (typeof handleMainSearch === "function") handleMainSearch(document.getElementById("searchInput").value);
+              if (typeof handleMainSearch === "function")
+                handleMainSearch(document.getElementById("searchInput").value);
               else applyFilters();
             }, 500);
           });
+        }
       };
 
       // Refresh data from Confluence (read-only, no write operations)
@@ -3243,14 +4153,12 @@ async function parseCovenantExcelBlob(blob) {
           "Product_Program",
           "Product Program",
         ]);
-        // Product_Program is canonical; Product Program Name is fallback only
         const productProgramName = pickCovenantField(row, [
           "Product Program Name",
           "Product_Program_Name",
         ]);
-        const resolvedProduct = productProgram || productProgramName;
-        const underwriter = pickCovenantField(row, [
-          "Underwriter",
+        const underwriter = pickCovenantField(row, ["Underwriter"]);
+        const leadUnderwriter = pickCovenantField(row, [
           "Lead_Underwriter",
           "Lead Underwriter",
         ]);
@@ -3297,8 +4205,8 @@ async function parseCovenantExcelBlob(blob) {
           Report_Date: asOf,
           As_Of_Date: asOf,
           Region: pickCovenantField(row, ["Region"]),
-          Product_Program: resolvedProduct,
-          Product_Program_Name: resolvedProduct, // mirror for compatibility; Product_Program is canonical
+          Product_Program: productProgram || productProgramName,
+          Product_Program_Name: productProgramName || productProgram,
           Origination_Unit: pickCovenantField(row, [
             "Originating Unit",
             "Origination_Unit",
@@ -3307,11 +4215,9 @@ async function parseCovenantExcelBlob(blob) {
           Underwriting_Team_Lead: pickCovenantField(row, [
             "Underwriting Team Lead",
             "Underwriting_Team_Lead",
-            "Team_Lead",
-            "Team Lead",
           ]),
-          Lead_Underwriter: underwriter,
-          Underwriter: underwriter,
+          Lead_Underwriter: leadUnderwriter || underwriter,
+          Underwriter: underwriter || leadUnderwriter,
           Product_Underwriter: pickCovenantField(row, [
             "Product Underwriter",
             "Product_Underwriter",
@@ -3896,27 +4802,31 @@ async function fetchCovenantsFromConfluence() {
       // Populate filter dropdowns with unique values from Confluence data (read-only)
 
       function getFilterSourceData() {
-        if (
-          typeof COVENANTS_ONLY_PAGE !== "undefined" &&
-          COVENANTS_ONLY_PAGE &&
-          covenantsData &&
-          covenantsData.length > 0
-        ) {
-          return covenantsData;
-        }
+        if (covenantsData && covenantsData.length > 0) return covenantsData;
         return portfolioData || [];
       }
 
-            function populateFilterOptions() {
+      function populateFilterOptions() {
         const filterSource = getFilterSourceData();
         if (!filterSource || filterSource.length === 0) {
           console.warn("No covenant data available to populate filters");
           return;
         }
-        console.log("Populating covenant filter options from", filterSource.length, "rows");
-        if (typeof populateProductFilterDropdown === "function") populateProductFilterDropdown();
-        if (typeof populateUnderwriterFilterDropdown === "function") populateUnderwriterFilterDropdown();
-        if (typeof populateTeamLeadFilterDropdown === "function") populateTeamLeadFilterDropdown();
+        dropdownsPopulated = {
+          region: false,
+          product: false,
+          underwriter: false,
+          teamLead: false,
+        };
+        console.log(
+          "Populating covenant filter options from",
+          filterSource.length,
+          "rows"
+        );
+        populateCovenantFilterDropdown("region");
+        populateCovenantFilterDropdown("product");
+        populateCovenantFilterDropdown("underwriter");
+        populateCovenantFilterDropdown("teamLead");
       }
 
       // Helper to populate a select element
@@ -4093,10 +5003,1584 @@ async function fetchCovenantsFromConfluence() {
         if (typeof applyFilters === "function") applyFilters();
       }
 
+      // ===== Expand Modal (PAL-overview pattern) =====
+      let currentExpandType = null;
+      const expandChartInstances = {};
+
+      const EXPAND_MODAL_META = {
+        pastDue: {
+          title: "Past Due Covenants",
+          subtitle: "Aging, regional, and underwriter breakdown of past due covenants",
+        },
+        comingDue: {
+          title: "Total Coming Due",
+          subtitle: "All Coming Due covenants — Coming Due / Past Due = Coming Due",
+        },
+        actionNeeded: {
+          title: "Action Needed",
+          subtitle: "Past Due only — overdue covenants requiring follow-up",
+        },
+        totalActive: {
+          title: "Total Covenants",
+          subtitle: "All covenants in the filtered file — status, region, and product mix",
+        },
+        relationships: {
+          title: "Relationships with Active Covenants",
+          subtitle: "Unique relationships, concentration, and covenant intensity",
+        },
+        covenantMonitoring: {
+          title: "Action Needed by Region",
+          subtitle: "Past Due concentration by region, with product and relationship detail",
+        },
+        covenantRegional: {
+          title: "Covenants by Region",
+          subtitle: "Regional breakdown of covenant status and aging",
+        },
+        activity: {
+          title: "Covenant Activity",
+          subtitle: "Deferred / Waived / Deleted activity insights",
+        },
+        activityRegional: {
+          title: "Covenant Activity by Region",
+          subtitle: "Regional summary of covenant activity",
+        },
+        agingByRegion: {
+          title: "Aging Severity by Region",
+          subtitle: "Past due aging buckets stacked by region",
+        },
+        productDonut: {
+          title: "Covenants by Product Program",
+          subtitle: "Product Program donut with regional bar breakdown",
+        },
+        covenantDetails: {
+          title: "Action Needed",
+          subtitle: "Past Due covenant records for follow-up",
+        },
+      };
+
+      function destroyExpandCharts() {
+        Object.keys(expandChartInstances).forEach((key) => {
+          try {
+            if (expandChartInstances[key]) {
+              expandChartInstances[key].destroy();
+              expandChartInstances[key] = null;
+            }
+          } catch (e) {
+            /* ignore */
+          }
+        });
+      }
+
       function closeExpandModal() {
         const expandModal = document.getElementById("expandModal");
         if (expandModal) expandModal.classList.add("hidden");
+        document.body.style.overflow = "";
+        destroyExpandCharts();
+        currentExpandType = null;
       }
+
+      function switchExpandTab(tabName) {
+        const insightsTab = document.getElementById("insightsTab");
+        const insightsContent = document.getElementById("insightsContent");
+        const activeClass =
+          "inline-flex items-center gap-2 border-b-2 px-2.5 py-3 text-sm font-medium transition-colors duration-200 ease-in-out text-blue-600 border-blue-600";
+        if (tabName === "insights" && insightsTab && insightsContent) {
+          insightsTab.className = activeClass;
+          insightsContent.classList.remove("hidden");
+        }
+      }
+
+      function expandMetricCard(iconBg, iconColor, iconPath, label, value) {
+        return `
+          <div class="rounded-xl border border-gray-200 bg-white p-5">
+            <div class="flex items-start gap-3">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}">
+                <svg class="h-5 w-5 shrink-0 ${iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${iconPath}"></path>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-gray-500">${label}</p>
+                <h3 class="text-2xl font-bold text-gray-900">${value}</h3>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function expandCountBy(rows, keyFn) {
+        const map = {};
+        (rows || []).forEach((row) => {
+          const key = keyFn(row) || "Unknown";
+          map[key] = (map[key] || 0) + 1;
+        });
+        return Object.entries(map).sort((a, b) => b[1] - a[1]);
+      }
+
+      function expandAgingBucket(row) {
+        const cat = normalizePastDueCategoryValue(row && row.Past_Due_Category);
+        if (cat === ">90 Days") return ">90";
+        if (cat === "61-90 Days") return "61-90";
+        if (cat === "46-60 Days") return "46-60";
+        if (cat === "31-45 Days") return "31-45";
+        if (cat === "0-30 Days" || cat === "1-45 Days") return "1-30";
+        return null;
+      }
+
+      function expandRegionalAgingTable(rows, allRows) {
+        const regions = ["APAC", "EMEA", "NAM", "LATAM"];
+        const aging = {};
+        const pop = {};
+        regions.forEach((r) => {
+          aging[r] = { "1-30": 0, "31-45": 0, "46-60": 0, "61-90": 0, ">90": 0, comingDue: 0 };
+          pop[r] = 0;
+        });
+        (allRows || rows || []).forEach((row) => {
+          const region = String(row.Region || "").trim().toUpperCase();
+          if (pop[region] !== undefined) pop[region]++;
+        });
+        (rows || []).forEach((row) => {
+          const region = String(row.Region || "").trim().toUpperCase();
+          if (!aging[region]) return;
+          if (isCovenantComingDue(row)) {
+            aging[region].comingDue++;
+            return;
+          }
+          const bucket = expandAgingBucket(row);
+          if (bucket && aging[region][bucket] !== undefined) aging[region][bucket]++;
+        });
+
+        const isPast = (rows || []).some((r) => isCovenantPastDue(r));
+        const header = isPast
+          ? `<th class="px-3 py-3 text-xs font-semibold text-gray-700 text-left">Region</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">1-45</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">46-90</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">&gt;90</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">Total PD</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">Total Cov</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">%</th>`
+          : `<th class="px-3 py-3 text-xs font-semibold text-gray-700 text-left">Region</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">Upcoming</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">Total Cov</th>
+             <th class="px-2 py-3 text-xs font-semibold text-gray-700 text-center">%</th>`;
+
+        const body = regions
+          .filter((r) => pop[r] > 0)
+          .map((r) => {
+            const c145 = aging[r]["1-30"] + aging[r]["31-45"];
+            const c4690 = aging[r]["46-60"] + aging[r]["61-90"];
+            const c90 = aging[r][">90"];
+            const pd = c145 + c4690 + c90;
+            const cd = aging[r].comingDue;
+            if (isPast) {
+              const pct = pop[r] > 0 ? ((pd / pop[r]) * 100).toFixed(1) : "0.0";
+              return `<tr class="border-b border-gray-100 hover:bg-gray-50">
+                <td class="px-3 py-3 text-xs font-medium text-gray-700">${r}</td>
+                <td class="px-2 py-3 text-xs text-center font-semibold">${c145}</td>
+                <td class="px-2 py-3 text-xs text-center font-semibold">${c4690}</td>
+                <td class="px-2 py-3 text-xs text-center font-semibold">${c90}</td>
+                <td class="px-2 py-3 text-xs text-center font-bold">${pd}</td>
+                <td class="px-2 py-3 text-xs text-center font-bold">${pop[r]}</td>
+                <td class="px-2 py-3 text-xs text-center font-semibold">${pct}%</td>
+              </tr>`;
+            }
+            const totalCd = regions.reduce((s, x) => s + aging[x].comingDue, 0);
+            const pct = totalCd > 0 ? ((cd / totalCd) * 100).toFixed(1) : "0.0";
+            return `<tr class="border-b border-gray-100 hover:bg-gray-50">
+              <td class="px-3 py-3 text-xs font-medium text-gray-700">${r}</td>
+              <td class="px-2 py-3 text-xs text-center font-bold">${cd}</td>
+              <td class="px-2 py-3 text-xs text-center font-bold">${pop[r]}</td>
+              <td class="px-2 py-3 text-xs text-center font-semibold">${pct}%</td>
+            </tr>`;
+          })
+          .join("");
+
+        return `
+          <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <div class="border-b border-gray-200 px-6 py-4">
+              <h3 class="text-base font-semibold text-gray-900">${isPast ? "Past Due" : "Upcoming"} by Region</h3>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full"><thead><tr class="bg-gray-50">${header}</tr></thead>
+              <tbody>${body || `<tr><td colspan="7" class="px-4 py-8 text-center text-sm text-gray-400">No regional data</td></tr>`}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      const EXPAND_LEGEND_COLORS = [
+        "#3641f5",
+        "#7592ff",
+        "#dde9ff",
+        "#ff6b6b",
+        "#ffd93d",
+        "#6bcf7f",
+        "#c084fc",
+      ];
+
+      function expandRankedList(title, subtitle, entries, total, colors) {
+        const palette = colors || EXPAND_LEGEND_COLORS;
+        const rows = (entries || []).slice(0, 12);
+        return `
+          <div class="rounded-xl border border-gray-200 bg-white">
+            <div class="border-b border-gray-200 px-6 py-4">
+              <h3 class="text-base font-semibold text-gray-900">${title}</h3>
+            </div>
+            <div class="p-6 space-y-3" id="expandRankedList">
+              ${
+                rows.length
+                  ? rows
+                      .map(([name, count], i) => {
+                        const pct = total > 0 ? ((count / total) * 100).toFixed(1) : "0.0";
+                        return `<div class="flex items-center gap-3 py-1">
+                          <div class="w-4 h-4 rounded-sm flex-shrink-0" style="background-color:${palette[i % palette.length]}"></div>
+                          <p class="text-sm font-medium text-gray-800 flex-1 truncate">${name}</p>
+                          <p class="text-sm font-semibold text-gray-900">${count} <span class="text-gray-500 font-normal">• ${pct}%</span></p>
+                        </div>`;
+                      })
+                      .join("")
+                  : `<p class="text-sm text-gray-400 text-center py-6">No data</p>`
+              }
+            </div>
+          </div>`;
+      }
+
+      function expandLegendHtml(entries, total, colors) {
+        const palette = colors || EXPAND_LEGEND_COLORS;
+        const rows = (entries || []).slice(0, 8);
+        if (!rows.length) {
+          return `<p class="text-sm text-gray-400 text-center py-6">No data</p>`;
+        }
+        return rows
+          .map(([name, count], i) => {
+            const pct = total > 0 ? ((count / total) * 100).toFixed(1) : "0.0";
+            const color = palette[i % palette.length];
+            return `<div class="flex items-center gap-3 py-2 min-w-0">
+              <div class="w-4 h-4 rounded-sm flex-shrink-0" style="background-color: ${color};"></div>
+              <p class="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate" title="${escapeHtml(String(name))}">${escapeHtml(String(name))}</p>
+              <p class="text-sm font-semibold text-gray-900 whitespace-nowrap flex-shrink-0">${count} <span class="text-gray-500 font-normal">• ${pct}%</span></p>
+            </div>`;
+          })
+          .join("");
+      }
+
+      function expandDonutBlock(title, subtitle, entries, total, tooltipSubtitle, chartId, payloadKey, colors) {
+        const display = (entries || []).slice(0, 8);
+        const id = chartId || "expandProductDonut";
+        const key = payloadKey || "__expandProductData";
+        const palette = colors || EXPAND_LEGEND_COLORS;
+        const payload = {
+          total: total || 0,
+          subtitle: tooltipSubtitle || subtitle || title || "Donut",
+          colors: palette,
+          items: display.map(([name, count]) => ({
+            name,
+            count,
+          })),
+        };
+        return `
+          <div class="rounded-xl border border-gray-200 bg-white p-4 overflow-hidden">
+            <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">${escapeHtml(title || "")}</h3>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-6 mt-2 min-w-0">
+              <div id="${id}" class="flex-shrink-0 overflow-hidden" style="width:280px;min-height:280px"></div>
+              <div class="flex-1 w-full max-w-md min-w-0 px-2 overflow-hidden">${expandLegendHtml(display, total, palette)}</div>
+            </div>
+          </div>
+          <script>window.${key}=${JSON.stringify(payload)};</script>`;
+      }
+
+      function expandProductDonutBlock(title, subtitle, entries, total, tooltipSubtitle) {
+        return expandDonutBlock(
+          title,
+          subtitle,
+          entries,
+          total,
+          tooltipSubtitle,
+          "expandProductDonut",
+          "__expandProductData"
+        );
+      }
+
+      function expandFrequencyDonutBlock(title, subtitle, entries, total, tooltipSubtitle) {
+        return expandDonutBlock(
+          title || "By Periodicity / Frequency",
+          subtitle,
+          entries,
+          total,
+          tooltipSubtitle || "Periodicity / Frequency",
+          "expandFrequencyDonut",
+          "__expandFrequencyData"
+        );
+      }
+
+      function expandUnderwriterBarBlock(title, subtitle, entries, total, tooltipSubtitle, baseColor) {
+        const display = (entries || []).slice(0, 5);
+        const counts = display.map((x) => x[1]);
+        const base = baseColor || "#3641f5";
+        const payload = {
+          labels: display.map((x) => x[0]),
+          counts,
+          total: total || 0,
+          name: "Underwriters",
+          subtitle: tooltipSubtitle || subtitle || "By underwriter",
+          colors: covCountIntensityColors(counts, base),
+        };
+        return `
+          <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">${escapeHtml(title || "Covenants by Underwriter Top 5")}</h3>
+            <div class="mt-2 min-w-0">
+              <div id="expandUnderwriterBar" class="w-full min-w-0" style="height:280px;width:100%"></div>
+            </div>
+          </div>
+          <script>window.__expandUnderwriterBar=${JSON.stringify(payload)};</script>`;
+      }
+
+      function expandTopTable(title, subtitle, headers, rowHtml) {
+        return `
+          <div class="rounded-2xl border border-gray-200 bg-white mb-6">
+            <div class="px-6 py-4 border-b border-gray-200">
+              <h3 class="text-lg font-semibold text-gray-800">${title}</h3>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full">
+                <thead><tr class="bg-gray-50">${headers
+                  .map(
+                    (h) =>
+                      `<th class="px-6 py-4 text-sm font-medium whitespace-nowrap text-gray-500 ${
+                        h.center ? "text-center" : "text-left"
+                      }">${h.label}</th>`
+                  )
+                  .join("")}</tr></thead>
+                <tbody class="divide-y divide-gray-200">${rowHtml}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+
+      function generatePastDueExpandedView(dataSource) {
+        const rows = (dataSource || []).filter((r) => isCovenantPastDue(r));
+        const total = rows.length;
+        const rels = new Set(rows.map((r) => getCovenantRelationshipKey(r)).filter(Boolean));
+        const facs = new Set(
+          rows.map((r) => String(r.Facility_Number || "").trim()).filter(Boolean)
+        );
+        const avgDays =
+          total > 0
+            ? Math.round(
+                rows.reduce((s, r) => s + (parseFloat(r.Days_Past_Due) || 0), 0) / total
+              )
+            : 0;
+        const aging = { "1-45": 0, "46-90": 0, ">90": 0 };
+        rows.forEach((r) => {
+          const b = expandAgingBucket(r);
+          if (b === ">90") aging[">90"]++;
+          else if (b === "46-60" || b === "61-90") aging["46-90"]++;
+          else if (b) aging["1-45"]++;
+        });
+        const byProduct = expandCountBy(rows, (r) => getCovenantProductProgram(r));
+        const byUw = expandCountBy(
+          rows,
+          (r) => r.Lead_Underwriter || r.Underwriter || "Unknown"
+        );
+        const regional = buildInsightRegionalAging(rows);
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Past Due", total.toLocaleString(), `${aging[">90"]} over 90 days`)}
+            ${expandMetricCard("bg-purple-100", "text-purple-600", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", rels.size.toLocaleString(), "Unique clients")}
+            ${expandMetricCard("bg-green-100", "text-green-600", "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", "Facilities", facs.size.toLocaleString(), "Unique facilities")}
+            ${expandMetricCard("bg-gray-100", "text-gray-700", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Avg Days Past Due", avgDays + " days", `1-45: ${aging["1-45"]} · 46-90: ${aging["46-90"]}`)}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Aging Severity by Region</h3>
+              <div id="expandAgingStacked" class="w-full" style="min-height:320px"></div>
+            </div>
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Past Due Aging Mix</h3>
+              <div id="expandAgingDonut" class="w-full" style="min-height:280px"></div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandProductDonutBlock(
+              "Covenants by Product Program",
+              "Past Due concentration by Product_Program",
+              byProduct,
+              total,
+              "Past Due by Product Program"
+            )}
+            ${expandUnderwriterBarBlock(
+              "Covenants by Underwriter Top 5",
+              "Past Due volume by underwriter",
+              byUw,
+              total,
+              "Past Due by underwriter",
+              "#dc2626"
+            )}
+          </div>
+          <div class="grid grid-cols-1 gap-6 mb-6">
+            ${expandRegionalAgingTable(rows, dataSource)}
+          </div>
+          <script>window.__expandAgingRegional=${JSON.stringify(regional)};</script>`;
+      }
+
+      function generateComingDueExpandedView(dataSource) {
+        const rows = (dataSource || []).filter((r) => isCovenantComingDue(r));
+        const total = rows.length;
+        const asOf = getCovenantAsOfDate(dataSource);
+        const byProduct = expandCountBy(rows, (r) => getCovenantProductProgram(r));
+        const byUw = expandCountBy(
+          rows,
+          (r) => r.Lead_Underwriter || r.Underwriter || "Unknown"
+        );
+        const buckets = buildComingDueBucketCounts(rows, asOf);
+        const regionBuckets = buildComingDueBucketsByRegion(rows, asOf);
+        const bucketEntries = COMING_DUE_BUCKET_LABELS.map((label) => [
+          label,
+          buckets[label] || 0,
+        ]);
+        const soonest = rows
+          .slice()
+          .sort((a, b) =>
+            String(a.Covenant_Due_Date || "").localeCompare(
+              String(b.Covenant_Due_Date || "")
+            )
+          )
+          .slice(0, 15);
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            ${expandMetricCard("bg-green-100", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Total Coming Due", total.toLocaleString())}
+            ${expandMetricCard("bg-green-100", "text-green-700", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "1-45 Days", (buckets["1-45 Days"] || 0).toLocaleString())}
+            ${expandMetricCard("bg-green-50", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "46-60 Days", (buckets["46-60 Days"] || 0).toLocaleString())}
+            ${expandMetricCard("bg-green-50", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "61-90 Days", (buckets["61-90 Days"] || 0).toLocaleString())}
+            ${expandMetricCard("bg-green-50", "text-green-500", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "90+ Days", (buckets["90+ Days"] || 0).toLocaleString())}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandDonutBlock(
+              "Coming Due Mix",
+              "",
+              bucketEntries,
+              total,
+              "Days until Covenant Due Date",
+              "expandComingDueMixDonut",
+              "__expandComingDueMix",
+              COMING_DUE_BUCKET_COLORS
+            )}
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Coming Due by Region</h3>
+              <div id="expandComingDueRegionStacked" class="w-full" style="min-height:320px"></div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandProductDonutBlock(
+              "Covenants by Product Program",
+              "Total Coming Due by Product_Program",
+              byProduct,
+              total,
+              "Total Coming Due by Product Program"
+            )}
+            ${expandUnderwriterBarBlock(
+              "Covenants by Underwriter Top 5",
+              "Total Coming Due by underwriter",
+              byUw,
+              total,
+              "Total Coming Due by underwriter",
+              "#16a34a"
+            )}
+          </div>
+          ${expandTopTable(
+            "Soonest Upcoming Covenants",
+            "Earliest Covenant Due Dates among Coming Due rows",
+            [
+              { label: "Relationship" },
+              { label: "Covenant #" },
+              { label: "Product Program" },
+              { label: "Due Date", center: true },
+              { label: "Region", center: true },
+            ],
+            soonest
+              .map(
+                (r) =>
+                  `<tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 text-sm text-gray-900">${escapeHtml(r.Relationship_Name || r.Borrowers_Name || "—")}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">${escapeHtml(r.Covenant_Number || "—")}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">${escapeHtml(getCovenantProductProgram(r))}</td>
+                    <td class="px-6 py-4 text-sm text-center font-semibold text-green-700">${escapeHtml(formatCovenantDate(r.Covenant_Due_Date))}</td>
+                    <td class="px-6 py-4 text-sm text-center">${escapeHtml(String(r.Region || "—").toUpperCase())}</td>
+                  </tr>`
+              )
+              .join("") ||
+              `<tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-400">No upcoming covenants</td></tr>`
+          )}
+          <script>window.__expandComingDueRegionStacked=${JSON.stringify(regionBuckets)};</script>`;
+      }
+
+      function generateActionNeededExpandedView(dataSource) {
+        const rows = (dataSource || []).filter((r) => isCovenantActionNeeded(r));
+        const total = rows.length;
+        const rels = new Set(
+          rows.map((r) => getCovenantRelationshipKey(r)).filter(Boolean)
+        );
+        const facs = new Set(
+          rows.map((r) => String(r.Facility_Number || "").trim()).filter(Boolean)
+        );
+        const avgDays =
+          total > 0
+            ? Math.round(
+                rows.reduce((s, r) => s + (parseFloat(r.Days_Past_Due) || 0), 0) / total
+              )
+            : 0;
+        const byProduct = expandCountBy(rows, (r) => getCovenantProductProgram(r));
+        const byRegion = expandCountBy(rows, (r) =>
+          String(r.Region || "Unknown").trim().toUpperCase()
+        );
+        const byUw = expandCountBy(
+          rows,
+          (r) => r.Lead_Underwriter || r.Underwriter || "Unknown"
+        );
+        const byFreq = expandCountBy(rows, (r) => getCovenantFrequency(r));
+        const regionChart = byRegion.slice(0, 8);
+        const worst = rows
+          .slice()
+          .sort((a, b) => (Number(b.Days_Past_Due) || 0) - (Number(a.Days_Past_Due) || 0))
+          .slice(0, 15);
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Action Needed", total.toLocaleString())}
+            ${expandMetricCard("bg-gray-100", "text-gray-700", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", rels.size.toLocaleString())}
+            ${expandMetricCard("bg-gray-100", "text-gray-700", "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", "Facilities", facs.size.toLocaleString())}
+            ${expandMetricCard("bg-red-50", "text-red-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Avg Days Past Due", avgDays.toLocaleString())}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Action Needed by Region</h3>
+              <div id="expandActionNeededBar" class="w-full" style="min-height:320px"></div>
+            </div>
+            ${expandFrequencyDonutBlock(
+              "By Periodicity / Frequency",
+              "",
+              byFreq,
+              total,
+              "Action Needed by Periodicity / Frequency"
+            )}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandProductDonutBlock(
+              "Covenants by Product Program",
+              "Action Needed share by Product_Program",
+              byProduct,
+              total,
+              "Action Needed by Product Program"
+            )}
+            ${expandUnderwriterBarBlock(
+              "Covenants by Underwriter Top 5",
+              "Action Needed by underwriter",
+              byUw,
+              total,
+              "Action Needed by underwriter",
+              "#dc2626"
+            )}
+          </div>
+          ${expandTopTable(
+            "Highest Days Past Due",
+            "Investigate these Past Due covenants first",
+            [
+              { label: "Relationship" },
+              { label: "Facility" },
+              { label: "Covenant #" },
+              { label: "Days", center: true },
+              { label: "Category", center: true },
+              { label: "Due Date", center: true },
+            ],
+            worst
+              .map(
+                (r) =>
+                  `<tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 text-sm text-gray-900">${escapeHtml(r.Relationship_Name || r.Borrowers_Name || "—")}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">${escapeHtml(r.Facility_Number || "—")}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">${escapeHtml(r.Covenant_Number || "—")}</td>
+                    <td class="px-6 py-4 text-sm text-center font-semibold text-red-600">${Number(r.Days_Past_Due) || 0}</td>
+                    <td class="px-6 py-4 text-sm text-center">${escapeHtml(normalizePastDueCategoryValue(r.Past_Due_Category) || "—")}</td>
+                    <td class="px-6 py-4 text-sm text-center">${escapeHtml(formatCovenantDate(r.Covenant_Due_Date))}</td>
+                  </tr>`
+              )
+              .join("") ||
+              `<tr><td colspan="6" class="px-6 py-8 text-center text-sm text-gray-400">No Action Needed covenants</td></tr>`
+          )}
+          ${expandRegionalAgingTable(rows, dataSource)}
+          <script>window.__expandActionNeededBar=${JSON.stringify({
+            labels: regionChart.map((x) => x[0]),
+            counts: regionChart.map((x) => x[1]),
+            total,
+          })};</script>`;
+      }
+
+      function generateTotalActiveExpandedView(dataSource) {
+        const rows = dataSource || [];
+        const total = rows.length;
+        const past = rows.filter((r) => isCovenantPastDue(r)).length;
+        const coming = rows.filter((r) => isCovenantComingDue(r)).length;
+        const other = Math.max(0, total - past - coming);
+        const rels = new Set(rows.map((r) => getCovenantRelationshipKey(r)).filter(Boolean));
+        const byProduct = expandCountBy(rows, (r) => getCovenantProductProgram(r));
+        const byUw = expandCountBy(
+          rows,
+          (r) => r.Lead_Underwriter || r.Underwriter || "Unknown"
+        );
+        const byRegion = expandCountBy(rows, (r) =>
+          String(r.Region || "Unknown").trim().toUpperCase()
+        );
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard("bg-blue-100", "text-blue-600", "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", "Total Active", total.toLocaleString(), "All filtered Excel rows")}
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Past Due", past.toLocaleString(), total ? ((past / total) * 100).toFixed(1) + "% of total" : "0%")}
+            ${expandMetricCard("bg-green-100", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Coming Due", coming.toLocaleString(), total ? ((coming / total) * 100).toFixed(1) + "% of total" : "0%")}
+            ${expandMetricCard("bg-purple-100", "text-purple-600", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", rels.size.toLocaleString(), other ? other + " other status rows" : "Unique clients")}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Status Mix</h3>
+              <div id="expandStatusDonut" style="min-height:280px"></div>
+            </div>
+            ${expandRankedList("By Region", "All active covenants by region", byRegion, total)}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandProductDonutBlock(
+              "Covenants by Product Program",
+              "All active covenants by Product_Program",
+              byProduct,
+              total,
+              "Total covenants by Product Program"
+            )}
+            ${expandUnderwriterBarBlock(
+              "Covenants by Underwriter Top 5",
+              "All active covenants by underwriter",
+              byUw,
+              total,
+              "Total covenants by underwriter",
+              "#3641f5"
+            )}
+          </div>
+          <script>window.__expandStatusMix=${JSON.stringify({ past, coming, other })};</script>`;
+      }
+
+      function generateRelationshipsExpandedView(dataSource) {
+        const rows = dataSource || [];
+        const byRel = {};
+        rows.forEach((row) => {
+          const key = getCovenantRelationshipKey(row) || "Unknown";
+          if (!byRel[key]) {
+            byRel[key] = {
+              name:
+                row.Relationship_Name ||
+                row.Borrowers_Name ||
+                key,
+              region: String(row.Region || "").trim().toUpperCase() || "—",
+              total: 0,
+              pastDue: 0,
+              comingDue: 0,
+            };
+          }
+          byRel[key].total++;
+          if (isCovenantPastDue(row)) byRel[key].pastDue++;
+          else if (isCovenantComingDue(row)) byRel[key].comingDue++;
+        });
+        const list = Object.values(byRel).sort((a, b) => b.total - a.total);
+        const withPast = list.filter((r) => r.pastDue > 0).length;
+        const withComing = list.filter((r) => r.comingDue > 0).length;
+        const avg = list.length ? (rows.length / list.length).toFixed(1) : "0";
+        const top10Share =
+          rows.length > 0
+            ? (
+                (list.slice(0, 10).reduce((s, r) => s + r.total, 0) / rows.length) *
+                100
+              ).toFixed(1)
+            : "0.0";
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard("bg-purple-100", "text-purple-600", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", list.length.toLocaleString(), "Unique Relationship IDs")}
+            ${expandMetricCard("bg-blue-100", "text-blue-600", "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", "Avg Covenants / Rel", avg, "Intensity")}
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "With Past Due", withPast.toLocaleString(), "Relationships")}
+            ${expandMetricCard("bg-green-100", "text-green-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "Top 10 Concentration", top10Share + "%", `${withComing} with Coming Due`)}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Action Needed by Relationship Top 5</h3>
+              <div id="expandRelationshipsBar" class="w-full" style="min-height:320px"></div>
+            </div>
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">By Relationship Volume Top 5</h3>
+              <div id="expandRelationshipVolumeBar" class="w-full" style="min-height:320px"></div>
+            </div>
+          </div>
+          ${expandTopTable(
+            "Top Relationships by Covenant Count",
+            "Highest covenant volume relationships in the filtered file",
+            [
+              { label: "Relationship" },
+              { label: "Region", center: true },
+              { label: "Total", center: true },
+              { label: "Past Due", center: true },
+              { label: "Coming Due", center: true },
+            ],
+            list
+              .slice(0, 20)
+              .map(
+                (r) =>
+                  `<tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 text-sm font-medium text-gray-900">${r.name}</td>
+                    <td class="px-6 py-4 text-sm text-center">${r.region}</td>
+                    <td class="px-6 py-4 text-sm text-center font-semibold">${r.total}</td>
+                    <td class="px-6 py-4 text-sm text-center text-red-600 font-semibold">${r.pastDue}</td>
+                    <td class="px-6 py-4 text-sm text-center text-green-600 font-semibold">${r.comingDue}</td>
+                  </tr>`
+              )
+              .join("") ||
+              `<tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-400">No data</td></tr>`
+          )}
+          <script>window.__expandRelationshipsBar=${JSON.stringify({
+            labels: list.filter((r) => r.pastDue > 0).slice(0, 5).map((r) => r.name),
+            counts: list.filter((r) => r.pastDue > 0).slice(0, 5).map((r) => r.pastDue),
+            total: list.reduce((s, r) => s + r.pastDue, 0),
+          })};
+          window.__expandRelationshipVolumeBar=${JSON.stringify({
+            labels: list.slice(0, 5).map((r) => r.name),
+            counts: list.slice(0, 5).map((r) => r.total),
+            total: rows.length,
+            color: "#3641f5",
+            name: "Covenants",
+          })};</script>`;
+      }
+
+      function generateMonitoringExpandedView(dataSource) {
+        return generatePastDueExpandedView(dataSource);
+      }
+
+      function generateProductExpandedView(dataSource) {
+        const rows = dataSource || [];
+        const productData = buildInsightProductData(rows);
+        const total = rows.length;
+        const top = productData[0];
+        const topShare =
+          top && total ? ((top[1].count / total) * 100).toFixed(1) : "0.0";
+        const byRegion = expandCountBy(rows, (r) =>
+          String(r.Region || "Unknown").trim().toUpperCase()
+        );
+        const productColors = [
+          "#3641f5",
+          "#7592ff",
+          "#dde9ff",
+          "#ff6b6b",
+          "#ffd93d",
+          "#6bcf7f",
+          "#c084fc",
+        ];
+        const displayProducts = productData.slice(0, 8);
+        const productLegend = displayProducts
+          .map(([program, data], index) => {
+            const color = productColors[index % productColors.length];
+            const percentage = total ? ((data.count / total) * 100).toFixed(1) : "0.0";
+            return `<div class="flex items-center gap-3 py-1.5">
+              <div class="w-4 h-4 rounded-sm flex-shrink-0" style="background-color: ${color};"></div>
+              <p class="text-sm font-medium text-gray-800 flex-1">${escapeHtml(program)}</p>
+              <p class="text-sm font-semibold text-gray-900">${data.count} <span class="text-gray-500 font-normal">• ${percentage}%</span></p>
+            </div>`;
+          })
+          .join("");
+
+        const detailRows = productData
+          .slice(0, 20)
+          .map(([name, d]) => {
+            const pct = total ? ((d.count / total) * 100).toFixed(1) : "0.0";
+            return `<tr class="hover:bg-gray-50">
+              <td class="px-6 py-4 text-sm font-medium text-gray-900">${name}</td>
+              <td class="px-6 py-4 text-sm text-center font-semibold">${d.count}</td>
+              <td class="px-6 py-4 text-sm text-center text-red-600">${d.statusBreakdown.pastDue}</td>
+              <td class="px-6 py-4 text-sm text-center text-green-600">${d.statusBreakdown.comingDue}</td>
+              <td class="px-6 py-4 text-sm text-center">${d.regionalBreakdown.NAM || 0}</td>
+              <td class="px-6 py-4 text-sm text-center">${d.regionalBreakdown.EMEA || 0}</td>
+              <td class="px-6 py-4 text-sm text-center">${d.regionalBreakdown.APAC || 0}</td>
+              <td class="px-6 py-4 text-sm text-center">${d.regionalBreakdown.LATAM || 0}</td>
+              <td class="px-6 py-4 text-sm text-center">${pct}%</td>
+            </tr>`;
+          })
+          .join("");
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard("bg-blue-100", "text-blue-600", "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", "Total Active", total.toLocaleString(), "Filtered rows")}
+            ${expandMetricCard("bg-indigo-100", "text-indigo-600", "M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z", "Product Programs", productData.length.toLocaleString(), "Distinct Product_Program")}
+            ${expandMetricCard("bg-purple-100", "text-purple-600", "M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z", "Top Program Share", topShare + "%", top ? top[0] : "—")}
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Past Due in Top", top ? top[1].statusBreakdown.pastDue.toLocaleString() : "0", "Within leading program")}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Covenants by Product Program</h3>
+              <div class="flex flex-col sm:flex-row items-center gap-4 mt-2">
+                <div id="expandProductDonut" class="flex-shrink-0" style="width:280px;min-height:280px"></div>
+                <div class="flex-1 w-full px-2">${productLegend}</div>
+              </div>
+            </div>
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">Covenants by Region</h3>
+              <div id="expandProductRegionBar" class="w-full" style="min-height:320px"></div>
+            </div>
+          </div>
+          ${expandTopTable(
+            "Product Program Detail",
+            "Status and regional mix by Product_Program",
+            [
+              { label: "Product Program" },
+              { label: "Total", center: true },
+              { label: "Past Due", center: true },
+              { label: "Coming Due", center: true },
+              { label: "NAM", center: true },
+              { label: "EMEA", center: true },
+              { label: "APAC", center: true },
+              { label: "LATAM", center: true },
+              { label: "%", center: true },
+            ],
+            detailRows ||
+              `<tr><td colspan="9" class="px-6 py-8 text-center text-sm text-gray-400">No data</td></tr>`
+          )}
+          <script>
+            window.__expandProductData=${JSON.stringify({
+              total,
+              items: displayProducts.map(([n, d]) => ({
+                name: n,
+                count: d.count,
+                pastDue: d.statusBreakdown.pastDue,
+                comingDue: d.statusBreakdown.comingDue,
+                other: d.statusBreakdown.other,
+                relationships: d.relationships ? d.relationships.size : 0,
+              })),
+            })};
+            window.__expandProductRegionBar=${JSON.stringify({
+              labels: byRegion.map((x) => x[0]),
+              counts: byRegion.map((x) => x[1]),
+              total,
+              color: "#3641f5",
+              name: "Covenants",
+            })};
+          </script>`;
+      }
+
+      function generateAgingExpandedView(dataSource) {
+        const pastDueRows = (dataSource || []).filter((r) => isCovenantPastDue(r));
+        const regional = buildInsightRegionalAging(pastDueRows);
+        const regions = ["APAC", "EMEA", "NAM", "LATAM"];
+        let t145 = 0,
+          t4690 = 0,
+          t90 = 0;
+        regions.forEach((r) => {
+          const d = regional[r] || {};
+          t145 += (d["1-30"] || 0) + (d["31-45"] || 0);
+          t4690 += (d["46-60"] || 0) + (d["61-90"] || 0);
+          t90 += d[">90"] || 0;
+        });
+        const total = t145 + t4690 + t90;
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", "Past Due Total", total.toLocaleString(), "Aging from Past Due Category")}
+            ${expandMetricCard("bg-red-50", "text-red-400", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "1-45 Days", t145.toLocaleString(), total ? ((t145 / total) * 100).toFixed(1) + "%" : "0%")}
+            ${expandMetricCard("bg-red-100", "text-red-600", "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z", "46-90 Days", t4690.toLocaleString(), total ? ((t4690 / total) * 100).toFixed(1) + "%" : "0%")}
+            ${expandMetricCard("bg-rose-100", "text-rose-600", "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z", ">90 Days", t90.toLocaleString(), total ? ((t90 / total) * 100).toFixed(1) + "%" : "0%")}
+          </div>
+          ${expandRegionalAgingTable(pastDueRows, dataSource)}
+          <div class="rounded-xl border border-gray-200 bg-white p-4 mt-6">
+            <h3 class="text-base font-semibold text-gray-900 px-2 pt-2 mb-2">Aging Severity Chart</h3>
+            <div id="expandAgingStacked" style="min-height:320px"></div>
+          </div>
+          <script>window.__expandAgingRegional=${JSON.stringify(regional)};</script>`;
+      }
+
+      function generateActivityExpandedView() {
+        const view = window.currentCovActivityView || "deferred";
+        const meta =
+          (typeof COV_ACTIVITY_VIEW_META !== "undefined" && COV_ACTIVITY_VIEW_META[view]) ||
+          { title: "Deferred Covenants", subtitle: "Activity insights" };
+        const raw =
+          (window.covenantsActivityData && window.covenantsActivityData.length
+            ? window.covenantsActivityData
+            : null) ||
+          covenantsActivityData ||
+          [];
+        const rows =
+          typeof filterCovenantActivityRows === "function"
+            ? filterCovenantActivityRows(raw)
+            : raw;
+        const matrix =
+          typeof buildCovenantActivityMatrix === "function"
+            ? buildCovenantActivityMatrix(rows, view)
+            : { months: [], regions: [], series: {} };
+        const months = matrix.months || [];
+        const regions = matrix.regions || [];
+        const byRegionMap = matrix.byRegion || {};
+        let total = (matrix.totals || []).reduce((s, n) => s + (n || 0), 0);
+        if (!total) {
+          regions.forEach((r) => {
+            (byRegionMap[r] || []).forEach((n) => {
+              total += n || 0;
+            });
+          });
+        }
+        const byRegion = regions
+          .map((r) => [
+            r,
+            (byRegionMap[r] || []).reduce((s, n) => s + (n || 0), 0),
+          ])
+          .sort((a, b) => b[1] - a[1]);
+        const latestMonth = months.length
+          ? typeof formatMonthLabel === "function"
+            ? formatMonthLabel(months[months.length - 1])
+            : months[months.length - 1]
+          : "—";
+        const latestTotal = regions.reduce((s, r) => {
+          const arr = byRegionMap[r] || [];
+          return s + (arr[arr.length - 1] || 0);
+        }, 0);
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            ${expandMetricCard("bg-blue-100", "text-blue-600", "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", meta.title.replace(" Covenants", ""), total.toLocaleString(), "Across 3 months from visible months")}
+            ${expandMetricCard("bg-indigo-100", "text-indigo-600", "M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z", "Months", months.length.toLocaleString(), "Visible months window")}
+            ${expandMetricCard("bg-green-100", "text-green-600", "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064", "Regions", regions.length.toLocaleString(), "With activity")}
+            ${expandMetricCard("bg-amber-100", "text-amber-600", "M13 7h8m0 0v8m0-8l-8 8-4-4-6 6", "Latest Month", latestTotal.toLocaleString(), latestMonth)}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            ${expandProductDonutBlock(
+              "By Region",
+              (meta.title || "Deferred Covenants") + " across 3 months from visible months",
+              byRegion.filter((entry) => (entry && entry[1]) > 0),
+              total,
+              (meta.title || "Deferred Covenants") + " by region"
+            )}
+            <div class="rounded-xl border border-gray-200 bg-white p-4 overflow-hidden">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2 mb-2">Monthly Trend</h3>
+              <div id="expandActivityTrend" class="w-full min-w-0 overflow-hidden" style="min-height:300px"></div>
+            </div>
+          </div>
+          <script>window.__expandActivityMatrix=${JSON.stringify({
+            months,
+            regions,
+            series: byRegionMap,
+            view,
+          })};</script>`;
+      }
+
+      function generateDetailsExpandedView(dataSource) {
+        const filter = window.covenantDetailsFilter || "actionNeeded";
+        const isUpcoming = filter === "comingDue" || filter === "upcoming";
+        const isPastDue = !isUpcoming;
+        const rows = (dataSource || []).filter((r) =>
+          isUpcoming ? isCovenantComingDue(r) : isCovenantPastDue(r)
+        );
+        const label = isUpcoming ? "Coming Due" : "Action Needed";
+        const byUw = expandCountBy(
+          rows,
+          (r) => r.Lead_Underwriter || r.Underwriter || "Unknown"
+        );
+        const byRel = expandCountBy(rows, (r) =>
+          r.Relationship_Name || getCovenantRelationshipKey(r) || "Unknown"
+        );
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            ${expandMetricCard(isPastDue ? "bg-red-100" : "bg-green-100", isPastDue ? "text-red-600" : "text-green-600", "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", label + " Rows", rows.length.toLocaleString(), "One row per covenant")}
+            ${expandMetricCard("bg-purple-100", "text-purple-600", "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", "Relationships", byRel.length.toLocaleString(), "In details scope")}
+            ${expandMetricCard("bg-blue-100", "text-blue-600", "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", "Underwriters", byUw.length.toLocaleString(), "Responsible")}
+            ${expandMetricCard("bg-gray-100", "text-gray-700", "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", "Top UW Share", rows.length && byUw[0] ? ((byUw[0][1] / rows.length) * 100).toFixed(1) + "%" : "0%", byUw[0] ? byUw[0][0] : "—")}
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+              <h3 class="text-base font-semibold text-gray-900 px-2 pt-2">${label} by Relationship Top 5</h3>
+              <div id="expandDetailsBar" class="w-full" style="min-height:320px"></div>
+            </div>
+            ${expandUnderwriterBarBlock(
+              "Covenants by Underwriter Top 5",
+              "Highest covenant counts by underwriter",
+              byUw,
+              rows.length,
+              label + " by underwriter",
+              isPastDue ? "#dc2626" : "#16a34a"
+            )}
+          </div>
+          ${expandRegionalAgingTable(rows, dataSource)}
+          <script>window.__expandDetailsBar=${JSON.stringify({
+            labels: byRel.slice(0, 5).map((x) => x[0]),
+            counts: byRel.slice(0, 5).map((x) => x[1]),
+            total: rows.length,
+            color: isPastDue ? "#dc2626" : "#16a34a",
+            name: label,
+          })};</script>`;
+      }
+
+      function generateExpandedView(chartType, dataSource) {
+        if (!dataSource || dataSource.length === 0) {
+          if (chartType !== "activity" && chartType !== "activityRegional") {
+            return `<div class="flex items-center justify-center min-h-[400px]">
+              <div class="text-center">
+                <h3 class="text-sm font-medium text-gray-900">No data available</h3>
+                <p class="mt-1 text-sm text-gray-500">No covenants match your current filters.</p>
+              </div>
+            </div>`;
+          }
+        }
+        switch (chartType) {
+          case "pastDue":
+            return generatePastDueExpandedView(dataSource);
+          case "comingDue":
+            return generateComingDueExpandedView(dataSource);
+          case "actionNeeded":
+            return generateActionNeededExpandedView(dataSource);
+          case "totalActive":
+            return generateTotalActiveExpandedView(dataSource);
+          case "relationships":
+            return generateRelationshipsExpandedView(dataSource);
+          case "covenantMonitoring":
+            return generatePastDueExpandedView(dataSource);
+          case "covenantRegional":
+            return generateAgingExpandedView(dataSource);
+          case "productDonut":
+            return generateProductExpandedView(dataSource);
+          case "agingByRegion":
+            return generateAgingExpandedView(dataSource);
+          case "activity":
+          case "activityRegional":
+            return generateActivityExpandedView();
+          case "covenantDetails":
+            return generateDetailsExpandedView(dataSource);
+          default:
+            return '<p class="text-gray-500">No detailed view available for this chart.</p>';
+        }
+      }
+
+      function initializeExpandCharts(chartType) {
+        if (typeof ApexCharts === "undefined") return;
+        destroyExpandCharts();
+
+        // Status mix donut (Total Active)
+        const statusEl = document.getElementById("expandStatusDonut");
+        if (statusEl && window.__expandStatusMix) {
+          const m = window.__expandStatusMix;
+          const chart = new ApexCharts(statusEl, {
+            chart: { type: "donut", height: 280, fontFamily: "Outfit, sans-serif" },
+            labels: ["Past Due", "Upcoming", "Other"],
+            series: [m.past || 0, m.coming || 0, m.other || 0],
+            colors: ["#dc2626", "#16a34a", "#94a3b8"],
+            legend: { position: "bottom" },
+            dataLabels: { enabled: false },
+          });
+          chart.render();
+          expandChartInstances.status = chart;
+        }
+
+        // Product / frequency donuts — same visual as the dashboard Product Program card
+        const renderExpandDonut = (elId, payloadKey, instanceKey) => {
+          const el = document.getElementById(elId);
+          const payload = window[payloadKey];
+          if (!el || !payload) return;
+          const data = Array.isArray(payload) ? payload : payload.items || [];
+          if (!data.length) return;
+          const donutTotal =
+            (payload && payload.total) ||
+            data.reduce((s, d) => s + (d.count || 0), 0);
+          const colors = (payload && payload.colors) || EXPAND_LEGEND_COLORS;
+          const chart = new ApexCharts(el, {
+            series: data.map((d) => d.count),
+            labels: data.map((d) => d.name),
+            colors: colors.slice(0, data.length),
+            chart: {
+              fontFamily: "Outfit, sans-serif",
+              type: "donut",
+              width: 280,
+              height: 280,
+            },
+            stroke: { show: false },
+            plotOptions: {
+              pie: {
+                donut: {
+                  size: "65%",
+                  background: "transparent",
+                  labels: {
+                    show: true,
+                    name: {
+                      show: true,
+                      offsetY: -10,
+                      color: "#1D2939",
+                      fontSize: "14px",
+                      fontWeight: "600",
+                    },
+                    value: {
+                      show: true,
+                      offsetY: 10,
+                      color: "#667085",
+                      fontSize: "16px",
+                      fontWeight: "700",
+                    },
+                    total: {
+                      show: true,
+                      label: "Total",
+                      color: "#111827",
+                      fontSize: "16px",
+                      fontWeight: "700",
+                      formatter: function (w) {
+                        return w.globals.seriesTotals.reduce((a, b) => a + b, 0);
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            dataLabels: { enabled: false },
+            legend: { show: false },
+            tooltip: {
+              enabled: true,
+              theme: "light",
+              custom: function ({ series, seriesIndex }) {
+                const entry = data[seriesIndex] || {};
+                if (typeof buildCovenantStyleTooltip === "function") {
+                  const hasStatus =
+                    entry.pastDue != null ||
+                    entry.comingDue != null ||
+                    entry.other != null;
+                  return buildCovenantStyleTooltip({
+                    title: entry.name || "Item",
+                    subtitle: payload.subtitle || "Breakdown",
+                    count: series[seriesIndex] || 0,
+                    total: donutTotal,
+                    breakdownTitle: hasStatus ? "Status" : undefined,
+                    breakdownRows: hasStatus
+                      ? [
+                          { label: "Past Due", value: entry.pastDue || 0 },
+                          { label: "Coming Due", value: entry.comingDue || 0 },
+                          { label: "Other", value: entry.other || 0 },
+                        ]
+                      : [],
+                    col1: "Status",
+                    relationships: entry.relationships || 0,
+                  });
+                }
+                return (
+                  "<div class='px-2 py-1 text-sm'>" +
+                  (entry.name || "Item") +
+                  ": " +
+                  (series[seriesIndex] || 0) +
+                  "</div>"
+                );
+              },
+            },
+          });
+          chart.render();
+          expandChartInstances[instanceKey] = chart;
+        };
+        renderExpandDonut("expandProductDonut", "__expandProductData", "product");
+        renderExpandDonut("expandFrequencyDonut", "__expandFrequencyData", "frequency");
+        renderExpandDonut("expandComingDueMixDonut", "__expandComingDueMix", "comingDueMix");
+
+        // Underwriter bar — same color legends as Product Program, different chart type
+        const uwEl = document.getElementById("expandUnderwriterBar");
+        if (uwEl && window.__expandUnderwriterBar) {
+          const p = window.__expandUnderwriterBar;
+          const chart = new ApexCharts(uwEl, {
+            chart: {
+              type: "bar",
+              height: 280,
+              width: "100%",
+              fontFamily: "Outfit, sans-serif",
+              toolbar: { show: false },
+              parentHeightOffset: 0,
+              offsetX: 0,
+              offsetY: 0,
+            },
+            series: [{ name: p.name || "Underwriters", data: p.counts || [] }],
+            xaxis: covHBarXAxis(p.labels || [], p.counts),
+            yaxis: {
+              labels: {
+                show: true,
+                maxWidth: 140,
+                trim: true,
+                offsetX: 0,
+                minWidth: 0,
+                style: { fontSize: "11px", colors: "#6B7280" },
+                formatter: function (val) {
+                  const s = String(val == null ? "" : val);
+                  return s.length > 22 ? s.slice(0, 21) + "…" : s;
+                },
+              },
+            },
+            colors: p.colors || covCountIntensityColors(p.counts, "#3641f5"),
+            plotOptions: covSingleBarPlotOptions({
+              horizontal: true,
+              distributed: true,
+              barHeight: "52%",
+            }),
+            dataLabels: covSingleBarDataLabels({ horizontal: true }),
+            legend: { show: false },
+            grid: covHBarGrid(),
+            tooltip: {
+              enabled: true,
+              custom: function ({ dataPointIndex }) {
+                const name = (p.labels || [])[dataPointIndex] || "Underwriter";
+                const count = (p.counts || [])[dataPointIndex] || 0;
+                if (typeof buildCovenantStyleTooltip === "function") {
+                  return buildCovenantStyleTooltip({
+                    title: name,
+                    subtitle: p.subtitle || "By underwriter",
+                    count,
+                    total: p.total || 0,
+                  });
+                }
+                return (
+                  '<div class="px-3 py-2 text-sm"><strong>' +
+                  name +
+                  "</strong><br/>" +
+                  count +
+                  "</div>"
+                );
+              },
+            },
+          });
+          chart.render();
+          expandChartInstances.underwriter = chart;
+        }
+
+        // Aging stacked
+        const agingEl = document.getElementById("expandAgingStacked");
+        if (agingEl && window.__expandAgingRegional) {
+          const regional = window.__expandAgingRegional;
+          const cats = ["APAC", "EMEA", "NAM", "LATAM"].filter((r) => regional[r]);
+          const chart = new ApexCharts(agingEl, {
+            chart: { type: "bar", stacked: true, height: 320, fontFamily: "Outfit, sans-serif", toolbar: { show: false } },
+            series: [
+              { name: "1-45", data: cats.map((r) => (regional[r]["1-30"] || 0) + (regional[r]["31-45"] || 0)) },
+              { name: "46-90", data: cats.map((r) => (regional[r]["46-60"] || 0) + (regional[r]["61-90"] || 0)) },
+              { name: ">90", data: cats.map((r) => regional[r][">90"] || 0) },
+            ],
+            xaxis: { categories: cats },
+            colors: ["#fecaca", "#f87171", "#dc2626"],
+            plotOptions: covStackedBarPlotOptions(),
+            legend: { position: "top" },
+            dataLabels: covStackedBarDataLabels(),
+            grid: { padding: { top: 16 } },
+          });
+          chart.render();
+          expandChartInstances.aging = chart;
+        }
+
+        // Coming Due by Region — same 1-45 / 46-60 / 61-90 / 90+ buckets as the details table
+        const comingDueRegionEl = document.getElementById("expandComingDueRegionStacked");
+        if (comingDueRegionEl && window.__expandComingDueRegionStacked) {
+          const regional = window.__expandComingDueRegionStacked;
+          const cats = ["APAC", "EMEA", "NAM", "LATAM"].filter(
+            (r) =>
+              regional[r] &&
+              COMING_DUE_BUCKET_LABELS.some((b) => (regional[r][b] || 0) > 0)
+          );
+          const regions = cats.length
+            ? cats
+            : ["APAC", "EMEA", "NAM", "LATAM"].filter((r) => regional[r]);
+          const chart = new ApexCharts(comingDueRegionEl, {
+            chart: {
+              type: "bar",
+              stacked: true,
+              height: 320,
+              fontFamily: "Outfit, sans-serif",
+              toolbar: { show: false },
+            },
+            series: COMING_DUE_BUCKET_LABELS.map((label) => ({
+              name: label,
+              data: regions.map((r) => (regional[r] && regional[r][label]) || 0),
+            })),
+            xaxis: { categories: regions },
+            colors: COMING_DUE_BUCKET_COLORS,
+            plotOptions: covStackedBarPlotOptions(),
+            legend: { position: "top" },
+            dataLabels: covStackedBarDataLabels(),
+            grid: { padding: { top: 16 } },
+          });
+          chart.render();
+          expandChartInstances.comingDueRegion = chart;
+        }
+
+        // Past due aging donut (Past Due expand only — Action Needed is all >90)
+        const agingDonutEl = document.getElementById("expandAgingDonut");
+        if (agingDonutEl && chartType !== "actionNeeded") {
+          const dataSource =
+            typeof getCovenantPageDataSource === "function"
+              ? getCovenantPageDataSource() || []
+              : [];
+          const past = dataSource.filter((r) => isCovenantPastDue(r));
+          const buckets = { "1-45": 0, "46-90": 0, ">90": 0 };
+          past.forEach((r) => {
+            const b = expandAgingBucket(r);
+            if (b === ">90") buckets[">90"]++;
+            else if (b === "46-60" || b === "61-90") buckets["46-90"]++;
+            else if (b) buckets["1-45"]++;
+          });
+          const chart = new ApexCharts(agingDonutEl, {
+            chart: { type: "donut", height: 280, fontFamily: "Outfit, sans-serif" },
+            labels: ["1-45 Days", "46-90 Days", ">90 Days"],
+            series: [buckets["1-45"], buckets["46-90"], buckets[">90"]],
+            colors: ["#fecaca", "#f87171", "#dc2626"],
+            legend: { position: "bottom" },
+            dataLabels: { enabled: false },
+            title: { text: "Past Due Aging Mix", style: { fontSize: "14px", fontWeight: 600 } },
+          });
+          chart.render();
+          expandChartInstances.agingDonut = chart;
+        }
+
+        // Upcoming timeline (Coming Due expanded view)
+        const upcomingTlEl = document.getElementById("expandUpcomingTimeline");
+        if (upcomingTlEl && window.__expandUpcomingTimeline) {
+          const tl = window.__expandUpcomingTimeline;
+          const chart = new ApexCharts(upcomingTlEl, {
+            chart: {
+              type: "bar",
+              height: 320,
+              fontFamily: "Outfit, sans-serif",
+              toolbar: { show: false },
+              parentHeightOffset: 0,
+            },
+            series: [{ name: "Total Coming Due", data: tl.counts || [] }],
+            xaxis: {
+              categories: tl.labels || [],
+              labels: { style: { fontSize: "12px", colors: "#6B7280" } },
+            },
+            yaxis: {
+              labels: { style: { fontSize: "11px", colors: "#6B7280" } },
+            },
+            colors: ["#16a34a"],
+            plotOptions: covSingleBarPlotOptions({ columnWidth: "46%" }),
+            dataLabels: covSingleBarDataLabels(),
+            grid: { borderColor: "#F3F4F6", strokeDashArray: 4, padding: { top: 18 } },
+            tooltip: {
+              enabled: true,
+              custom: function ({ dataPointIndex }) {
+                const count = (tl.counts || [])[dataPointIndex] || 0;
+                const label = (tl.labels || [])[dataPointIndex] || "";
+                const rels = (tl.relCounts || [])[dataPointIndex] || 0;
+                const grand = tl.total || 0;
+                if (typeof buildCovenantStyleTooltip === "function") {
+                  return buildCovenantStyleTooltip({
+                    title: label,
+                    subtitle: "Total Coming Due",
+                    count,
+                    total: grand,
+                    relationships: rels,
+                  });
+                }
+                return (
+                  '<div class="px-3 py-2 text-sm"><strong>' +
+                  label +
+                  "</strong><br/>Total Coming Due: " +
+                  count +
+                  "</div>"
+                );
+              },
+            },
+          });
+          chart.render();
+          expandChartInstances.upcomingTimeline = chart;
+        }
+
+        // Horizontal bar helper used by several expand views
+        const renderExpandHBar = (elId, payloadKey, instanceKey, color, seriesName, intensity) => {
+          const el = document.getElementById(elId);
+          const payload = window[payloadKey];
+          if (!el || !payload || !payload.labels || !payload.labels.length) return;
+          const base = payload.color || color;
+          const barColors = intensity
+            ? covCountIntensityColors(payload.counts, base)
+            : [base];
+          const chart = new ApexCharts(el, {
+            chart: {
+              type: "bar",
+              height: 320,
+              fontFamily: "Outfit, sans-serif",
+              toolbar: { show: false },
+              parentHeightOffset: 0,
+            },
+            series: [{ name: payload.name || seriesName, data: payload.counts || [] }],
+            xaxis: covHBarXAxis(payload.labels, payload.counts),
+            yaxis: {
+              labels: {
+                maxWidth: 110,
+                trim: true,
+                style: { fontSize: "11px", colors: "#6B7280" },
+              },
+            },
+            colors: barColors,
+            plotOptions: covSingleBarPlotOptions({
+              horizontal: true,
+              distributed: !!intensity,
+              barHeight: "58%",
+            }),
+            dataLabels: covSingleBarDataLabels({ horizontal: true }),
+            grid: covHBarGrid({ padding: { left: 8, right: 52 } }),
+            legend: { show: false },
+          });
+          chart.render();
+          expandChartInstances[instanceKey] = chart;
+        };
+        renderExpandHBar("expandActionNeededBar", "__expandActionNeededBar", "actionNeeded", "#dc2626", "Action Needed");
+        renderExpandHBar("expandComingDueRegionBar", "__expandComingDueRegionBar", "comingDueRegion", "#16a34a", "Total Coming Due");
+        renderExpandHBar("expandProductRegionBar", "__expandProductRegionBar", "productRegion", "#3641f5", "Covenants");
+        renderExpandHBar("expandRelationshipsBar", "__expandRelationshipsBar", "relationships", "#dc2626", "Action Needed", true);
+        renderExpandHBar("expandRelationshipVolumeBar", "__expandRelationshipVolumeBar", "relVolume", "#3641f5", "Covenants", true);
+        renderExpandHBar("expandDetailsBar", "__expandDetailsBar", "details", "#dc2626", "Covenants", true);
+
+        // Activity trend
+        const actEl = document.getElementById("expandActivityTrend");
+        if (actEl && window.__expandActivityMatrix) {
+          const m = window.__expandActivityMatrix;
+          const chart = new ApexCharts(actEl, {
+            chart: { type: "bar", stacked: true, height: 300, fontFamily: "Outfit, sans-serif", toolbar: { show: false } },
+            series: (m.regions || []).map((r) => ({
+              name: r,
+              data: m.series[r] || [],
+            })),
+            xaxis: {
+              categories: (m.months || []).map((k) =>
+                typeof formatMonthLabel === "function" ? formatMonthLabel(k) : k
+              ),
+            },
+            colors: ["#3641f5", "#7592ff", "#10b981", "#f59e0b", "#94a3b8"],
+            plotOptions: covStackedBarPlotOptions(),
+            legend: { position: "top" },
+            dataLabels: covStackedBarDataLabels(),
+            grid: { padding: { top: 16 } },
+          });
+          chart.render();
+          expandChartInstances.activity = chart;
+        }
+      }
+
+      function populateExpandModalValues(chartType) {
+        const insightsContent = document.getElementById("insightsContent");
+        if (!insightsContent) return;
+
+        const dataSource =
+          typeof getCovenantPageDataSource === "function"
+            ? getCovenantPageDataSource() || []
+            : covenantsData || [];
+
+        insightsContent.innerHTML = `
+          <div class="flex items-center justify-center py-12 text-gray-400">
+            <svg class="animate-spin h-8 w-8 mr-3" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Loading insights...
+          </div>`;
+
+        setTimeout(() => {
+          try {
+            const html = generateExpandedView(chartType, dataSource);
+            insightsContent.innerHTML = html;
+            // Execute embedded scripts for chart data payloads
+            const scripts = insightsContent.querySelectorAll("script");
+            scripts.forEach((s) => {
+              try {
+                // eslint-disable-next-line no-eval
+                eval(s.textContent);
+              } catch (e) {
+                console.warn("Expand script eval failed", e);
+              }
+            });
+            initializeExpandCharts(chartType);
+          } catch (error) {
+            console.error("Error generating expanded view:", chartType, error);
+            insightsContent.innerHTML = `
+              <div class="flex items-center justify-center min-h-[400px]">
+                <div class="text-center">
+                  <h3 class="text-sm font-medium text-gray-900">Error loading expanded view</h3>
+                  <p class="mt-1 text-sm text-gray-500">${error.message || error}</p>
+                </div>
+              </div>`;
+          }
+        }, 40);
+      }
+
+      function openExpandModal(chartType) {
+        currentExpandType = chartType;
+        const modal = document.getElementById("expandModal");
+        const modalTitle = document.getElementById("expandModalTitle");
+        const modalSubtitle = document.getElementById("expandModalSubtitle");
+        if (!modal) {
+          console.error("Expand modal element not found");
+          return;
+        }
+
+        let meta = EXPAND_MODAL_META[chartType] || {
+          title: chartType,
+          subtitle: "Expanded view with additional details",
+        };
+
+        if (chartType === "covenantMonitoring") {
+          meta = {
+            title: "Past Due Covenants",
+            subtitle: "Aging mix, regional table, and product concentration",
+          };
+        }
+        if (chartType === "covenantRegional") {
+          meta = {
+            title: "Past Due Covenants by Region",
+            subtitle: "Regional aging buckets from Past Due Category",
+          };
+        }
+
+        if (chartType === "covenantDetails") {
+          const filter = window.covenantDetailsFilter || "actionNeeded";
+          if (filter === "comingDue" || filter === "upcoming") {
+            meta = {
+              title: "Coming Due Covenants",
+              subtitle: "Underlying Coming Due records from the details table",
+            };
+          } else {
+            meta = {
+              title: "Past Due Covenants",
+              subtitle: "Past Due covenant records for follow-up",
+            };
+          }
+        }
+
+        if (chartType === "activity" || chartType === "activityRegional") {
+          const view = window.currentCovActivityView || "deferred";
+          const viewMeta =
+            (typeof COV_ACTIVITY_VIEW_META !== "undefined" &&
+              COV_ACTIVITY_VIEW_META[view]) ||
+            {};
+          meta = {
+            title: viewMeta.title || meta.title,
+            subtitle: viewMeta.subtitle || meta.subtitle,
+          };
+        }
+
+        if (modalTitle) modalTitle.textContent = meta.title;
+        if (modalSubtitle) modalSubtitle.textContent = meta.subtitle;
+        switchExpandTab("insights");
+        populateExpandModalValues(chartType);
+        modal.classList.remove("hidden");
+        document.body.style.overflow = "hidden";
+      }
+
+      // ESC closes expand modal
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          const modal = document.getElementById("expandModal");
+          if (modal && !modal.classList.contains("hidden")) closeExpandModal();
+        }
+      });
+
+      window.openExpandModal = openExpandModal;
+      window.closeExpandModal = closeExpandModal;
+      window.switchExpandTab = switchExpandTab;
+
 
 
       // Remove a specific filter
@@ -4271,6 +6755,14 @@ async function fetchCovenantsFromConfluence() {
         // Toggle current dropdown
         const isHidden = dropdown.classList.contains("hidden");
         if (isHidden) {
+          if (
+            filterType === "region" ||
+            filterType === "product" ||
+            filterType === "underwriter" ||
+            filterType === "teamLead"
+          ) {
+            populateCovenantFilterDropdown(filterType);
+          }
           dropdown.classList.remove("hidden");
           openTopFilter = filterType;
 
@@ -4674,68 +7166,117 @@ async function fetchCovenantsFromConfluence() {
       
       // Cache for dropdown population
       let dropdownsPopulated = {
+        region: false,
         product: false,
         subproduct: false,
         underwriter: false,
-        teamLead: false
+        teamLead: false,
       };
 
-      // Populate product filter dropdown from data
-      function populateProductFilterDropdown() {
-        const container = document.getElementById("productFilterValues");
-        if (!container || !portfolioData || portfolioData.length === 0) return;
-        
-        // Skip if already populated (performance optimization for 42K+ rows)
-        if (dropdownsPopulated.product && container.children.length > 0) {
-          console.log("Product dropdown already populated, skipping");
+      function covUniqueSorted(rows, getter) {
+        const set = new Set();
+        (rows || []).forEach((row) => {
+          const v = String(getter(row) || "").trim();
+          if (v) set.add(v);
+        });
+        return Array.from(set).sort((a, b) =>
+          a.localeCompare(b, undefined, { sensitivity: "base" })
+        );
+      }
+
+      function covRenderFilterItems(container, values, selectedList, filterType) {
+        if (!container) return;
+        if (!values.length) {
+          container.innerHTML =
+            '<div class="px-3 py-2 text-gray-500">No values available.</div>';
           return;
         }
-
-        console.log("Populating product dropdown from", portfolioData.length, "rows");
-        const startTime = performance.now();
-
-        // Get unique product programs (Product_Program is canonical)
-        const products = [
-          ...new Set(
-            getFilterSourceData()
-              .map((row) => getCovenantProductProgram(row))
-              .filter((p) => p && p !== "Unknown")
-          ),
-        ].sort();
-        
-        console.log("Found", products.length, "unique products in", (performance.now() - startTime).toFixed(2), "ms");
-
-        // Generate HTML with Radix UI style items
-        let html = "";
-        if (products.length === 0) {
-          html =
-            '<div class="px-3 py-2 text-gray-500">No products available.</div>';
-        } else {
-          products.forEach((product) => {
-            const escapedProduct = product
+        const selected = selectedList || [];
+        container.innerHTML = values
+          .map((value) => {
+            const escaped = String(value)
+              .replace(/&/g, "&amp;")
               .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#39;");
-            const isSelected = selectedProducts.includes(product);
+              .replace(/'/g, "&#39;")
+              .replace(/</g, "&lt;");
+            const isSelected = selected.indexOf(value) !== -1;
             const selectedClass = isSelected
               ? "text-blue-600 bg-blue-50"
               : "text-gray-600";
             const checkHidden = isSelected ? "" : "hidden";
-            html += `
-                        <div class="filter-item flex items-center justify-between px-3 py-2.5 cursor-pointer ${selectedClass} hover:text-blue-600 hover:bg-blue-50 transition-colors duration-150" data-value="${escapedProduct}" onclick="toggleFilterItem(this, 'product')">
-                            <span class="pr-4 line-clamp-1">${product}</span>
-                            <div class="w-5 h-5 check-icon ${checkHidden} flex-shrink-0">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
-                            </div>
-                        </div>
-                    `;
-          });
-        }
+            return (
+              '<div class="filter-item flex items-center justify-between px-3 py-2.5 cursor-pointer ' +
+              selectedClass +
+              ' hover:text-blue-600 hover:bg-blue-50 transition-colors duration-150" data-value="' +
+              escaped +
+              "\" onclick=\"toggleFilterItem(this, '" +
+              filterType +
+              "')\">" +
+              '<span class="pr-4 line-clamp-1">' +
+              escaped +
+              "</span>" +
+              '<div class="w-5 h-5 check-icon ' +
+              checkHidden +
+              ' flex-shrink-0">' +
+              '<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">' +
+              '<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />' +
+              "</svg></div></div>"
+            );
+          })
+          .join("");
+      }
 
-        container.innerHTML = html;
-        dropdownsPopulated.product = true;
-        console.log("✅ Product dropdown populated in", (performance.now() - startTime).toFixed(2), "ms");
+      function populateCovenantFilterDropdown(filterType) {
+        const idMap = {
+          region: "regionFilterValues",
+          product: "productFilterValues",
+          underwriter: "underwriterFilterValues",
+          teamLead: "teamLeadFilterValues",
+        };
+        const container = document.getElementById(idMap[filterType]);
+        const source = getFilterSourceData();
+        if (!container) return;
+        if (!source || !source.length) {
+          container.innerHTML =
+            '<div class="px-3 py-2 text-gray-500">No values available.</div>';
+          return;
+        }
+        let getter;
+        let selected;
+        if (filterType === "region") {
+          getter = getCovenantRegion;
+          selected = selectedRegions;
+        } else if (filterType === "product") {
+          getter = getCovenantProductProgramName;
+          selected = selectedProducts;
+        } else if (filterType === "underwriter") {
+          getter = getCovenantUnderwriter;
+          selected = selectedUnderwriters;
+        } else if (filterType === "teamLead") {
+          getter = getCovenantTeamLead;
+          selected = selectedTeamLeads;
+        } else {
+          return;
+        }
+        covRenderFilterItems(
+          container,
+          covUniqueSorted(source, getter),
+          selected,
+          filterType
+        );
+        dropdownsPopulated[filterType] = true;
+      }
+
+      function populateProductFilterDropdown() {
+        populateCovenantFilterDropdown("product");
+      }
+
+      function populateUnderwriterFilterDropdown() {
+        populateCovenantFilterDropdown("underwriter");
+      }
+
+      function populateTeamLeadFilterDropdown() {
+        populateCovenantFilterDropdown("teamLead");
       }
 
       // Populate sub product filter dropdown from data
@@ -4792,121 +7333,6 @@ async function fetchCovenantsFromConfluence() {
         container.innerHTML = html;
         dropdownsPopulated.subproduct = true;
         console.log("✅ Sub product dropdown populated in", (performance.now() - startTime).toFixed(2), "ms");
-      }
-
-      // Filter sub product dropdown values based on search
-      
-      // Populate underwriter filter dropdown from data
-      function populateUnderwriterFilterDropdown() {
-        const container = document.getElementById("underwriterFilterValues");
-        if (!container || !portfolioData || portfolioData.length === 0) return;
-        
-        // Skip if already populated (performance optimization for 42K+ rows)
-        if (dropdownsPopulated.underwriter && container.children.length > 0) {
-          console.log("Underwriter dropdown already populated, skipping");
-          return;
-        }
-
-        console.log("Populating underwriter dropdown from", portfolioData.length, "rows");
-        const startTime = performance.now();
-
-        // Get unique underwriters
-        const underwriters = [
-          ...new Set(
-            getFilterSourceData()
-              .map((row) => row.Lead_Underwriter || row.Underwriter)
-              .filter(Boolean)
-          ),
-        ].sort();
-        
-        console.log("Found", underwriters.length, "unique underwriters in", (performance.now() - startTime).toFixed(2), "ms");
-
-        // Generate HTML with Radix UI style items
-        let html = "";
-        if (underwriters.length === 0) {
-          html =
-            '<div class="px-3 py-2 text-gray-500">No underwriters available.</div>';
-        } else {
-          underwriters.forEach((underwriter) => {
-            const escapedUnderwriter = underwriter
-              .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#39;");
-            const isSelected = selectedUnderwriters.includes(underwriter);
-            const selectedClass = isSelected
-              ? "text-blue-600 bg-blue-50"
-              : "text-gray-600";
-            const checkHidden = isSelected ? "" : "hidden";
-            html += `
-                        <div class="filter-item flex items-center justify-between px-3 py-2.5 cursor-pointer ${selectedClass} hover:text-blue-600 hover:bg-blue-50 transition-colors duration-150" data-value="${escapedUnderwriter}" onclick="toggleFilterItem(this, 'underwriter')">
-                            <span class="pr-4 line-clamp-1">${underwriter}</span>
-                            <div class="w-5 h-5 check-icon ${checkHidden} flex-shrink-0">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
-                            </div>
-                        </div>
-                    `;
-          });
-        }
-
-        container.innerHTML = html;
-        dropdownsPopulated.underwriter = true;
-        console.log("✅ Underwriter dropdown populated in", (performance.now() - startTime).toFixed(2), "ms");
-      }
-
-      function populateTeamLeadFilterDropdown() {
-        const container = document.getElementById("teamLeadFilterValues");
-        if (!container || !portfolioData || portfolioData.length === 0) return;
-        
-        // Skip if already populated (performance optimization for 42K+ rows)
-        if (dropdownsPopulated.teamLead && container.children.length > 0) {
-          console.log("Team Lead dropdown already populated, skipping");
-          return;
-        }
-
-        console.log("Populating team lead dropdown from", portfolioData.length, "rows");
-        const startTime = performance.now();
-
-        // Get unique team leads
-        const teamLeads = [
-          ...new Set(
-            portfolioData.map((row) => row.Underwriting_Team_Lead).filter(Boolean)
-          ),
-        ].sort();
-        
-        console.log("Found", teamLeads.length, "unique team leads in", (performance.now() - startTime).toFixed(2), "ms");
-
-        // Generate HTML with Radix UI style items
-        let html = "";
-        if (teamLeads.length === 0) {
-          html =
-            '<div class="px-3 py-2 text-gray-500">No team leads available.</div>';
-        } else {
-          teamLeads.forEach((teamLead) => {
-            const escapedTeamLead = teamLead
-              .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#39;");
-            const isSelected = selectedTeamLeads.includes(teamLead);
-            const selectedClass = isSelected
-              ? "text-blue-600 bg-blue-50"
-              : "text-gray-600";
-            const checkHidden = isSelected ? "" : "hidden";
-            html += `
-                        <div class="filter-item flex items-center justify-between px-3 py-2.5 cursor-pointer ${selectedClass} hover:text-blue-600 hover:bg-blue-50 transition-colors duration-150" data-value="${escapedTeamLead}" onclick="toggleFilterItem(this, 'teamLead')">
-                            <span class="pr-4 line-clamp-1">${teamLead}</span>
-                            <div class="w-5 h-5 check-icon ${checkHidden} flex-shrink-0">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                </svg>
-                            </div>
-                        </div>
-                    `;
-          });
-        }
-
-        container.innerHTML = html;
-        dropdownsPopulated.teamLead = true;
-        console.log("✅ Team Lead dropdown populated in", (performance.now() - startTime).toFixed(2), "ms");
       }
 
       // Close top filter dropdowns when clicking outside (only for actual dropdowns - region, product, underwriter, and teamLead)
@@ -5356,14 +7782,17 @@ async function fetchCovenantsFromConfluence() {
           "1-45 Days": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+            relationships: new Set(),
           },
           "46-90 Days": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+            relationships: new Set(),
           },
           ">90 Days": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+            relationships: new Set(),
           },
         };
 
@@ -5372,10 +7801,12 @@ async function fetchCovenantsFromConfluence() {
           "46-90 Days": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+            relationships: new Set(),
           },
           ">90 Days": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+            relationships: new Set(),
           },
         };
 
@@ -5384,12 +7815,18 @@ async function fetchCovenantsFromConfluence() {
           "Next 30 Days": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+            relationships: new Set(),
           },
         };
 
         let pastDueTotalAll = 0; // Total including 1-45 days (for breakdown)
         let pastDueTotalGauge = 0; // Total for gauge (46-90 + >90 only)
         let comingDueTotal = 0;
+
+        const addRel = (bucket, row) => {
+          const key = getCovenantRelationshipKey(row);
+          if (key && bucket && bucket.relationships) bucket.relationships.add(key);
+        };
 
         dataSource.forEach((row) => {
           const status = normalizeComingDuePastDueStatus(row.Coming_Due_Past_Due);
@@ -5425,6 +7862,8 @@ async function fetchCovenantsFromConfluence() {
             if (pastDueCategory === ">90 Days") {
               pastDueBuckets[">90 Days"].count++;
               pastDueGaugeBuckets[">90 Days"].count++;
+              addRel(pastDueBuckets[">90 Days"], row);
+              addRel(pastDueGaugeBuckets[">90 Days"], row);
               if (
                 region &&
                 pastDueBuckets[">90 Days"].regionalBreakdown[region] !==
@@ -5440,6 +7879,8 @@ async function fetchCovenantsFromConfluence() {
             ) {
               pastDueBuckets["46-90 Days"].count++;
               pastDueGaugeBuckets["46-90 Days"].count++;
+              addRel(pastDueBuckets["46-90 Days"], row);
+              addRel(pastDueGaugeBuckets["46-90 Days"], row);
               if (
                 region &&
                 pastDueBuckets["46-90 Days"].regionalBreakdown[region] !==
@@ -5455,6 +7896,7 @@ async function fetchCovenantsFromConfluence() {
               pastDueCategory === "1-45 Days"
             ) {
               pastDueBuckets["1-45 Days"].count++;
+              addRel(pastDueBuckets["1-45 Days"], row);
               if (
                 region &&
                 pastDueBuckets["1-45 Days"].regionalBreakdown[region] !==
@@ -5473,6 +7915,7 @@ async function fetchCovenantsFromConfluence() {
           // Coming Due — exact Excel status only
           if (status === "Coming Due") {
             comingDueBuckets["Next 30 Days"].count++;
+            addRel(comingDueBuckets["Next 30 Days"], row);
             if (
               region &&
               comingDueBuckets["Next 30 Days"].regionalBreakdown[region] !==
@@ -5501,6 +7944,7 @@ async function fetchCovenantsFromConfluence() {
                 ? parseFloat(((data.count / pastDueTotalAll) * 100).toFixed(1))
                 : 0,
             regionalBreakdown: data.regionalBreakdown,
+            relationships: data.relationships ? data.relationships.size : 0,
           })
         );
 
@@ -5528,6 +7972,7 @@ async function fetchCovenantsFromConfluence() {
                 ? parseFloat(((data.count / comingDueTotal) * 100).toFixed(1))
                 : 0,
             regionalBreakdown: data.regionalBreakdown,
+            relationships: data.relationships ? data.relationships.size : 0,
           })
         );
 
@@ -5637,6 +8082,8 @@ async function fetchCovenantsFromConfluence() {
             type: "donut",
             width: 280,
             height: 280,
+            offsetX: 0,
+            offsetY: 0,
           },
           stroke: {
             show: false,
@@ -5707,6 +8154,8 @@ async function fetchCovenantsFromConfluence() {
                   : "Covenants due in the next 30 days",
                 count,
                 total: totalCount,
+                relationships:
+                  (categoryData && categoryData.relationships) || 0,
                 breakdownTitle: "Regional Distribution",
                 breakdownRows: regionalBreakdownRows(regionalBreakdown),
                 col1: "Region",
@@ -5795,6 +8244,10 @@ async function fetchCovenantsFromConfluence() {
 
       function updateCovenantChart(viewType) {
         console.log("Updating covenant chart to:", viewType);
+        if (viewType === "comingDue") {
+          if (typeof openExpandModal === "function") openExpandModal("comingDue");
+          return;
+        }
         currentCovenantViewType = viewType; // Update local variable
         window.currentCovenantViewType = viewType; // Update global state
         createCovenantMonitoringChart(viewType);
@@ -6300,8 +8753,10 @@ async function fetchCovenantsFromConfluence() {
         clearCenteredEmptyHost(host);
         if (!document.getElementById("covenantMonitoringChart")) {
           host.innerHTML = `
-            <div id="covenantMonitoringChart" class="chartDarkStyle"></div>
-            <div id="covenantMonitoringLegend" class="flex flex-row items-center justify-center gap-4 sm:gap-6 mt-6 flex-wrap"></div>`;
+            <div class="flex items-center justify-center w-full">
+              <div id="covenantMonitoringChart" class="chartDarkStyle"></div>
+            </div>
+            <div id="covenantMonitoringLegend" class="flex flex-row items-center justify-center gap-4 sm:gap-6 mt-6 flex-wrap w-full"></div>`;
         }
         return {
           host,
@@ -6509,42 +8964,38 @@ async function fetchCovenantsFromConfluence() {
             : [];
         if (regionSet.length > 0) {
           filtered = filtered.filter((row) =>
-            regionSet.includes(String(row.Region || "").trim().toUpperCase())
+            regionSet.includes(getCovenantRegion(row))
           );
         }
 
-        // Product program — Product_Program is the canonical Excel column
+        // Product — Excel "Product Program Name"
         if (typeof selectedProducts !== "undefined" && selectedProducts.length > 0) {
           const products = selectedProducts.map((p) => String(p).toLowerCase());
           filtered = filtered.filter((row) => {
-            const val = getCovenantProductProgram(row).toLowerCase();
+            const val = getCovenantProductProgramName(row).toLowerCase();
             return val && products.includes(val);
           });
         }
 
-        // Lead underwriter
+        // Underwriter — Excel "Underwriter"
         if (
           typeof selectedUnderwriters !== "undefined" &&
           selectedUnderwriters.length > 0
         ) {
           const uws = selectedUnderwriters.map((u) => String(u).toLowerCase());
           filtered = filtered.filter((row) =>
-            uws.includes(
-              String(row.Lead_Underwriter || row.Underwriter || "").toLowerCase()
-            )
+            uws.includes(getCovenantUnderwriter(row).toLowerCase())
           );
         }
 
-        // Team lead
+        // Team Lead — Excel "Underwriting Team Lead"
         if (
           typeof selectedTeamLeads !== "undefined" &&
           selectedTeamLeads.length > 0
         ) {
           const leads = selectedTeamLeads.map((u) => String(u).toLowerCase());
           filtered = filtered.filter((row) =>
-            leads.includes(
-              String(row.Underwriting_Team_Lead || row.Team_Lead || "").toLowerCase()
-            )
+            leads.includes(getCovenantTeamLead(row).toLowerCase())
           );
         }
 
@@ -6560,6 +9011,7 @@ async function fetchCovenantsFromConfluence() {
               row.CA_Number,
               row.Facility_Number,
               row.Lead_Underwriter,
+              row.Underwriter,
               row.Underwriting_Team_Lead,
               row.Product_Program,
               row.Product_Program_Name,
@@ -6580,6 +9032,9 @@ async function fetchCovenantsFromConfluence() {
 
 
 // Expose handlers for inline onclick= in covenantsHTMLPage.js (Confluence)
+if (typeof openExpandModal === "function") window.openExpandModal = openExpandModal;
+if (typeof closeExpandModal === "function") window.closeExpandModal = closeExpandModal;
+if (typeof switchExpandTab === "function") window.switchExpandTab = switchExpandTab;
 if (typeof loadDataFromCSV === "function") window.loadDataFromCSV = loadDataFromCSV;
 if (typeof resetAllFilters === "function") window.resetAllFilters = resetAllFilters;
 if (typeof toggleUiMenu === "function") window.toggleUiMenu = toggleUiMenu;
@@ -6589,6 +9044,10 @@ if (typeof toggleTopFilter === "function") window.toggleTopFilter = toggleTopFil
 if (typeof toggleFilterItem === "function") window.toggleFilterItem = toggleFilterItem;
 if (typeof applyTopFilter === "function") window.applyTopFilter = applyTopFilter;
 if (typeof clearTopFilter === "function") window.clearTopFilter = clearTopFilter;
+if (typeof filterRegionDropdownValues === "function") window.filterRegionDropdownValues = filterRegionDropdownValues;
+if (typeof filterProductDropdownValues === "function") window.filterProductDropdownValues = filterProductDropdownValues;
+if (typeof filterUnderwriterDropdownValues === "function") window.filterUnderwriterDropdownValues = filterUnderwriterDropdownValues;
+if (typeof filterTeamLeadDropdownValues === "function") window.filterTeamLeadDropdownValues = filterTeamLeadDropdownValues;
 if (typeof removeFilter === "function") window.removeFilter = removeFilter;
 if (typeof applyFilters === "function") window.applyFilters = applyFilters;
 if (typeof setActiveInGroup === "function") window.setActiveInGroup = setActiveInGroup;
