@@ -7901,7 +7901,7 @@ async function fetchCovenantsFromConfluence() {
 
         // Coming Due only shows next 30 days
         const comingDueBuckets = {
-          "Next 30 Days": {
+          "Next 3 Months": {
             count: 0,
             regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
             relationships: new Set(),
@@ -8002,15 +8002,15 @@ async function fetchCovenantsFromConfluence() {
           }
 
           // Coming Due — exact Excel status only
-          if (status === "Coming Due") {
-            comingDueBuckets["Next 30 Days"].count++;
-            addRel(comingDueBuckets["Next 30 Days"], row);
+          if (isCovenantComingDue(row)) {
+            comingDueBuckets["Next 3 Months"].count++;
+            addRel(comingDueBuckets["Next 3 Months"], row);
             if (
               region &&
-              comingDueBuckets["Next 30 Days"].regionalBreakdown[region] !==
+              comingDueBuckets["Next 3 Months"].regionalBreakdown[region] !==
                 undefined
             ) {
-              comingDueBuckets["Next 30 Days"].regionalBreakdown[region]++;
+              comingDueBuckets["Next 3 Months"].regionalBreakdown[region]++;
             }
             comingDueTotal++;
           }
@@ -8114,7 +8114,7 @@ async function fetchCovenantsFromConfluence() {
           // For Coming Due: Show next 30 days (only if count > 0)
           if (data.count > 0) {
             series = [data.count];
-            labels = ["Next 30 Days"];
+            labels = ["Next 3 Months"];
             colors = ["#10B981"]; // Keep green for Coming Due
           } else {
             series = [];
@@ -8333,12 +8333,8 @@ async function fetchCovenantsFromConfluence() {
 
       function updateCovenantChart(viewType) {
         console.log("Updating covenant chart to:", viewType);
-        if (viewType === "comingDue") {
-          if (typeof openExpandModal === "function") openExpandModal("comingDue");
-          return;
-        }
-        currentCovenantViewType = viewType; // Update local variable
-        window.currentCovenantViewType = viewType; // Update global state
+        currentCovenantViewType = viewType;
+        window.currentCovenantViewType = viewType;
         createCovenantMonitoringChart(viewType);
         updateCovenantRegionalTable(viewType);
       }
@@ -8362,12 +8358,12 @@ async function fetchCovenantsFromConfluence() {
         if (titleEl) {
           titleEl.textContent = isPastDue
             ? "Past Due Covenants by Region"
-            : "Coming Due Covenants by Region (Next 30 Days)";
+            : "Coming Due Covenants by Region";
         }
         if (subtitleEl) {
           subtitleEl.textContent = isPastDue
             ? "Regional breakdown of past due covenants"
-            : "Regional breakdown of covenants due in the next 30 days";
+            : "Regional breakdown of covenants due in the next 3 months";
         }
 
         // Update table headers

@@ -47,7 +47,7 @@
   }
   function downloadBtn(key, name) {
     return (
-      '<button type="button" onclick="downloadCovenantSVG(\'' +
+      '<button type="button" onclick="event.stopPropagation(); downloadCovenantSVG(\'' +
       key +
       "','" +
       name +
@@ -623,7 +623,7 @@
               </div>
               <div>
                 <h3 class="text-sm font-medium text-gray-500">Total Covenants</h3>
-                <p class="text-xs text-gray-400 truncate whitespace-nowrap" id="covMetricTotalSub">Filtered file</p>
+                <p class="text-xs text-gray-400 truncate whitespace-nowrap" id="covMetricTotalSub">Past Due + Coming Due (3 mo)</p>
               </div>
             </div>
             <p class="text-2xl font-bold text-gray-900 text-center mt-3" id="covMetricTotal">0</p>
@@ -653,7 +653,7 @@
               </div>
               <div>
                 <h3 class="text-sm font-medium text-gray-500">Coming Due</h3>
-                <p class="text-xs text-gray-400 truncate whitespace-nowrap" id="covMetricComingDueSub">Coming Due</p>
+                <p class="text-xs text-gray-400 truncate whitespace-nowrap" id="covMetricComingDueSub">Next 3 months</p>
               </div>
             </div>
             <p class="text-2xl font-bold text-green-600 text-center mt-3" id="covMetricComingDue">0</p>
@@ -679,19 +679,19 @@
         <div class="grid grid-cols-12 gap-4 md:gap-6 mb-6 items-stretch">
           <div class="col-span-12 xl:col-span-5 flex">
             <div class="rounded-2xl border border-gray-200 bg-white w-full h-full min-h-[480px] flex flex-col relative" style="overflow: visible">
-              <div class="absolute top-2 right-2 flex items-center gap-0.5 z-10">
-                ${expandBtn("pastDue")}
-                ${downloadBtn("monitoring", "Past-Due-Covenants")}
-              </div>
-              <div class="flex items-center justify-between px-5 pt-5 sm:px-6 sm:pt-6 pb-4">
-                <div class="pr-14">
+              <div class="flex items-start justify-between gap-3 px-5 pt-5 sm:px-6 sm:pt-6 pb-4">
+                <div class="min-w-0">
                   <h3 class="text-lg font-semibold text-gray-800" id="covenantViewTitle">Past Due Covenants</h3>
                   <p class="mt-1 text-sm text-gray-500" id="covenantViewSubtitle">Covenants past their due date</p>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 shrink-0">
                   <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-                    <button type="button" onclick="setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); var t=document.getElementById('covenantViewTitle'); var s=document.getElementById('covenantViewSubtitle'); if(t)t.textContent='Past Due Covenants'; if(s)s.textContent='Covenants past their due date'; updateCovenantChart('pastDue')" class="px-2 py-1 text-xs rounded-md transition-all duration-200 bg-white shadow-sm text-gray-900 font-medium">Past Due</button>
-                    <button type="button" onclick="openExpandModal('comingDue')" class="px-2 py-1 text-xs rounded-md transition-all duration-200 text-gray-600" title="Open Total Coming Due charts">Coming Due</button>
+                    <button type="button" onclick="event.stopPropagation(); setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); var t=document.getElementById('covenantViewTitle'); var s=document.getElementById('covenantViewSubtitle'); if(t)t.textContent='Past Due Covenants'; if(s)s.textContent='Covenants past their due date'; updateCovenantChart('pastDue')" class="px-2 py-1 text-xs rounded-md transition-all duration-200 bg-white shadow-sm text-gray-900 font-medium">Past Due</button>
+                    <button type="button" onclick="event.stopPropagation(); setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); var t=document.getElementById('covenantViewTitle'); var s=document.getElementById('covenantViewSubtitle'); if(t)t.textContent='Coming Due Covenants'; if(s)s.textContent='Covenants due in the next 3 months'; updateCovenantChart('comingDue')" class="px-2 py-1 text-xs rounded-md transition-all duration-200 text-gray-600">Coming Due</button>
+                  </div>
+                  <div class="flex items-center gap-0.5">
+                    <button type="button" onclick="event.stopPropagation(); openExpandModal(window.currentCovenantViewType === 'comingDue' ? 'comingDue' : 'pastDue')" class="text-gray-600 hover:text-gray-900 transition-colors p-1" title="Expand">${expandSvg}</button>
+                    ${downloadBtn("monitoring", "Past-Due-Covenants")}
                   </div>
                 </div>
               </div>
@@ -748,16 +748,8 @@
               class="rounded-2xl border border-gray-200 bg-white w-full h-full min-h-[480px] flex flex-col relative"
               style="overflow: visible"
             >
-              <div class="absolute top-2 right-2 flex items-center gap-0.5 z-10">
-                <button type="button" onclick="openExpandModal('activity')" class="text-gray-600 hover:text-gray-900 transition-colors p-1" title="Expand">
-                  <svg class="fill-current" width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="0.5" stroke="currentColor"><path d="M4,7.5 C4,7.77614237 3.77614237,8 3.5,8 C3.22385763,8 3,7.77614237 3,7.5 L3,5.5 C3,4.11928813 4.11928813,3 5.5,3 L7.5,3 C7.77614237,3 8,3.22385763 8,3.5 C8,3.77614237 7.77614237,4 7.5,4 L5.5,4 C4.67157288,4 4,4.67157288 4,5.5 L4,7.5 Z M16.5,4 C16.2238576,4 16,3.77614237 16,3.5 C16,3.22385763 16.2238576,3 16.5,3 L18.5,3 C19.8807119,3 21,4.11928813 21,5.5 L21,7.5 C21,7.77614237 20.7761424,8 20.5,8 C20.2238576,8 20,7.77614237 20,7.5 L20,5.5 C20,4.67157288 19.3284271,4 18.5,4 L16.5,4 Z M20,16.5 C20,16.2238576 20.2238576,16 20.5,16 C20.7761424,16 21,16.2238576 21,16.5 L21,18.5 C21,19.8807119 19.8807119,21 18.5,21 L16.5,21 C16.2238576,21 16,20.7761424 16,20.5 C16,20.2238576 16.2238576,20 16.5,20 L18.5,20 C19.3284271,20 20,19.3284271 20,18.5 L20,16.5 Z M7.5,20 C7.77614237,20 8,20.2238576 8,20.5 C8,20.7761424 7.77614237,21 7.5,21 L5.5,21 C4.11928813,21 3,19.8807119 3,18.5 L3,16.5 C3,16.2238576 3.22385763,16 3.5,16 C3.77614237,16 4,16.2238576 4,16.5 L4,18.5 C4,19.3284271 4.67157288,20 5.5,20 L7.5,20 Z" fill=""/></svg>
-                </button>
-                <button type="button" onclick="downloadCovenantSVG('activity','Covenant-Activity')" class="text-gray-400 hover:text-gray-700 transition-colors p-1" title="Download SVG">
-                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                </button>
-              </div>
-              <div class="flex items-center justify-between px-5 pt-5 sm:px-6 sm:pt-6 pb-4 pr-12">
-                <div class="pr-4">
+              <div class="flex items-start justify-between gap-3 px-5 pt-5 sm:px-6 sm:pt-6 pb-4">
+                <div class="min-w-0 pr-2">
                   <h3
                     class="text-lg font-semibold text-gray-800"
                     id="covActivityViewTitle"
@@ -775,24 +767,32 @@
                   <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
                     <button
                       type="button"
-                      onclick="setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); updateCovenantActivityView('deferred')"
+                      onclick="event.stopPropagation(); setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); updateCovenantActivityView('deferred')"
                       class="px-2 py-1 text-xs rounded-md transition-all duration-200 bg-white shadow-sm text-gray-900 font-medium"
                     >
                       Deferred
                     </button>
                     <button
                       type="button"
-                      onclick="setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); updateCovenantActivityView('waived')"
+                      onclick="event.stopPropagation(); setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); updateCovenantActivityView('waived')"
                       class="px-2 py-1 text-xs rounded-md transition-all duration-200 text-gray-600"
                     >
                       Waived
                     </button>
                     <button
                       type="button"
-                      onclick="setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); updateCovenantActivityView('deleted')"
+                      onclick="event.stopPropagation(); setActiveInGroup(this, 'bg-white shadow-sm text-gray-900 font-medium', 'text-gray-600', 'px-2 py-1 text-xs rounded-md transition-all duration-200'); updateCovenantActivityView('deleted')"
                       class="px-2 py-1 text-xs rounded-md transition-all duration-200 text-gray-600"
                     >
                       Deleted
+                    </button>
+                  </div>
+                  <div class="flex items-center gap-0.5">
+                    <button type="button" onclick="event.stopPropagation(); openExpandModal('activity')" class="text-gray-600 hover:text-gray-900 transition-colors p-1" title="Expand">
+                      <svg class="fill-current" width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="0.5" stroke="currentColor"><path d="M4,7.5 C4,7.77614237 3.77614237,8 3.5,8 C3.22385763,8 3,7.77614237 3,7.5 L3,5.5 C3,4.11928813 4.11928813,3 5.5,3 L7.5,3 C7.77614237,3 8,3.22385763 8,3.5 C8,3.77614237 7.77614237,4 7.5,4 L5.5,4 C4.67157288,4 4,4.67157288 4,5.5 L4,7.5 Z M16.5,4 C16.2238576,4 16,3.77614237 16,3.5 C16,3.22385763 16.2238576,3 16.5,3 L18.5,3 C19.8807119,3 21,4.11928813 21,5.5 L21,7.5 C21,7.77614237 20.7761424,8 20.5,8 C20.2238576,8 20,7.77614237 20,7.5 L20,5.5 C20,4.67157288 19.3284271,4 18.5,4 L16.5,4 Z M20,16.5 C20,16.2238576 20.2238576,16 20.5,16 C20.7761424,16 21,16.2238576 21,16.5 L21,18.5 C21,19.8807119 19.8807119,21 18.5,21 L16.5,21 C16.2238576,21 16,20.7761424 16,20.5 C16,20.2238576 16.2238576,20 16.5,20 L18.5,20 C19.3284271,20 20,19.3284271 20,18.5 L20,16.5 Z M7.5,20 C7.77614237,20 8,20.2238576 8,20.5 C8,20.7761424 7.77614237,21 7.5,21 L5.5,21 C4.11928813,21 3,19.8807119 3,18.5 L3,16.5 C3,16.2238576 3.22385763,16 3.5,16 C3.77614237,16 4,16.2238576 4,16.5 L4,18.5 C4,19.3284271 4.67157288,20 5.5,20 L7.5,20 Z" fill=""/></svg>
+                    </button>
+                    <button type="button" onclick="event.stopPropagation(); downloadCovenantSVG('activity','Covenant-Activity')" class="text-gray-400 hover:text-gray-700 transition-colors p-1" title="Download SVG">
+                      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                     </button>
                   </div>
                 </div>
