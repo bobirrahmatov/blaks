@@ -1,0 +1,7 @@
+Maker Date,As of Date,Region,Relationship ID,Relationship Name,CA Number,Covenant Number,Product Program Name,Underwriter,Underwriting Team Lead,Covenant Compliance,Covenant Deferred Date,Cumulative Deferred Days,Modified in Reporting Month
+2026-04-10,2026-04-30,NAM,REL001,Example Relationship 1,CA2026001,COV-001,Corporate Lending,John Smith,Sarah Johnson,Deferred,2026-04-10,21,YES
+2026-04-18,2026-04-30,EMEA,REL002,Example Relationship 2,CA2026002,COV-002,Trade Finance,Sarah Johnson,David Lee,Waived,,0,YES
+2026-05-08,2026-05-31,APAC,REL003,Example Relationship 3,CA2026003,COV-003,Working Capital,David Lee,Carlos Rodriguez,Deleted,,0,YES
+2026-05-22,2026-05-31,NAM,REL001,Example Relationship 1,CA2026001,COV-001,Corporate Lending,John Smith,Sarah Johnson,Waived,,0,YES
+2026-06-05,2026-06-30,EMEA,REL002,Example Relationship 2,CA2026002,COV-002,Trade Finance,Sarah Johnson,David Lee,Deferred,2026-06-05,15,YES
+2026-06-19,2026-06-30,LATAM,REL004,Example Relationship 4,CA2026004,COV-004,Real Estate,Carlos Rodriguez,Sarah Johnson,Deactivated,,0,YES
