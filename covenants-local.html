@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Covenant Monitoring (Local / Dummy Data)</title>
+    <!-- Local Tailwind utilities + page styles -->
+    <link rel="stylesheet" href="./covenants-style.css?v=20260908-cd32" />
+    <link rel="stylesheet" href="./covenants-page-style.css?v=20260908-cd32" />
+    <style>
+      html,
+      body {
+        width: 100%;
+        max-width: none;
+        margin: 0;
+      }
+      #globalRiskCovenants {
+        width: 100%;
+        display: block;
+      }
+    </style>
+    <!-- Charts / Excel / PNG -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  </head>
+  <body>
+    <!-- Force dummy covenant + activity data for local testing -->
+    <script>
+      window.COVENANTS_ENABLE_DUMMY_DATA = true;
+      window.COVENANTS_ENABLE_DUMMY_ACTIVITY = true;
+      console.log(
+        "[Local] Dummy data forced ON (covenants + activity). Open without this file / with Confluence macro for live Excel."
+      );
+    </script>
+
+    <div
+      id="localDummyBanner"
+      class="sticky top-0 z-[10001] border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900"
+    >
+      <strong>Local dummy mode</strong> — covenants &amp; activity are generated in-browser
+      (not Confluence Excel). Use
+      <code class="rounded bg-amber-100 px-1">covenants-confluence-macro.html</code>
+      for production attachments.
+    </div>
+
+    <!-- Same host div as Confluence macro -->
+    <div id="globalRiskCovenants"></div>
+
+    <!-- Same load order as Confluence: logic first, then HTML injector -->
+    <script src="./covenants.js?v=20260908-cd32"></script>
+    <script src="./covenantsHTMLPage.js?v=20260908-cd32"></script>
+  </body>
+</html>

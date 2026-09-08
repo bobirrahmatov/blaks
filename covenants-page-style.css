@@ -514,3 +514,13 @@
         /* Prevent parent operations from affecting animations */
         isolation: isolate;
       }
+
+      /* Methodology (readme) inside expand modal */
+      .cov-method table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .cov-method th,
+      .cov-method td {
+        vertical-align: top;
+      }

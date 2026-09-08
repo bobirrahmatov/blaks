@@ -36,7 +36,7 @@
     '<svg class="fill-current" width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="0.5" stroke="currentColor"><path d="M4,7.5 C4,7.77614237 3.77614237,8 3.5,8 C3.22385763,8 3,7.77614237 3,7.5 L3,5.5 C3,4.11928813 4.11928813,3 5.5,3 L7.5,3 C7.77614237,3 8,3.22385763 8,3.5 C8,3.77614237 7.77614237,4 7.5,4 L5.5,4 C4.67157288,4 4,4.67157288 4,5.5 L4,7.5 Z M16.5,4 C16.2238576,4 16,3.77614237 16,3.5 C16,3.22385763 16.2238576,3 16.5,3 L18.5,3 C19.8807119,3 21,4.11928813 21,5.5 L21,7.5 C21,7.77614237 20.7761424,8 20.5,8 C20.2238576,8 20,7.77614237 20,7.5 L20,5.5 C20,4.67157288 19.3284271,4 18.5,4 L16.5,4 Z M20,16.5 C20,16.2238576 20.2238576,16 20.5,16 C20.7761424,16 21,16.2238576 21,16.5 L21,18.5 C21,19.8807119 19.8807119,21 18.5,21 L16.5,21 C16.2238576,21 16,20.7761424 16,20.5 C16,20.2238576 16.2238576,20 16.5,20 L18.5,20 C19.3284271,20 20,19.3284271 20,18.5 L20,16.5 Z M7.5,20 C7.77614237,20 8,20.2238576 8,20.5 C8,20.7761424 7.77614237,21 7.5,21 L5.5,21 C4.11928813,21 3,19.8807119 3,18.5 L3,16.5 C3,16.2238576 3.22385763,16 3.5,16 C3.77614237,16 4,16.2238576 4,16.5 L4,18.5 C4,19.3284271 4.67157288,20 5.5,20 L7.5,20 Z" fill=""/></svg>';
   var downloadSvg =
     '<svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>';
-      function expandBtn(type) {
+  function expandBtn(type) {
     return (
       '<button type="button" onclick="event.stopPropagation(); openExpandModal(\'' +
       type +
@@ -98,7 +98,7 @@
         <!-- Page Header -->
         <div class="mb-6 rounded-2xl border border-gray-200 bg-white p-5 overflow-visible">
           <!-- First Row: Search Bar and Action Buttons -->
-          <div class="flex items-center gap-3 mb-5">
+          <div class="flex flex-wrap items-center gap-3 mb-5">
             <!-- Left: Search Input -->
             <div class="relative flex-1 max-w-md">
               <span
@@ -129,7 +129,7 @@
             </div>
 
             <!-- Center: Action Buttons -->
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
               <!-- Refresh Button -->
               <button
                 onclick="loadDataFromCSV()"
@@ -609,6 +609,16 @@
           <!-- Footnote -->
           <p class="text-sm text-gray-400 mt-4 pt-3 border-t border-gray-100">
             Covenants reports are generated from the New Covenants Module for all Regions
+            <button
+              type="button"
+              onclick="openExpandModal('methodology')"
+              class="ml-1.5 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800"
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              Learn more
+            </button>
           </p>
         </div>
 
@@ -825,7 +835,7 @@
                   <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                 </button>
               </div>
-              <div class="px-5 pt-5 sm:px-6 sm:pt-6 pb-4 pr-12 shrink-0">
+              <div class="px-5 pt-5 sm:px-6 sm:pt-6 pb-4 pr-14 shrink-0">
                 <h3
                   class="text-lg font-semibold text-gray-800"
                   id="covActivityTableTitle"
@@ -872,7 +882,7 @@
                 ${expandBtn("agingByRegion")}
                 ${downloadBtn("agingByRegion", "Aging-Severity-by-Region")}
               </div>
-              <div class="border-b border-gray-200 px-5 sm:px-6 py-4 pr-12 shrink-0">
+              <div class="border-b border-gray-200 px-5 sm:px-6 py-4 pr-14 shrink-0">
                 <h3 class="text-base font-semibold text-gray-900">Aging Severity by Region</h3>
                 <p class="text-sm font-medium text-gray-500 mt-1">Stacked aging profile — chart view (table is on the dashboard)</p>
                 <p class="cov-insight-text" id="covInsightAgingByRegionInsight"></p>
@@ -892,7 +902,7 @@
                 ${expandBtn("productDonut")}
                 ${downloadBtn("productDonut", "Covenants-by-Product-Program")}
               </div>
-              <div class="border-b border-gray-200 px-5 sm:px-6 py-4 pr-12 shrink-0">
+              <div class="border-b border-gray-200 px-5 sm:px-6 py-4 pr-14 shrink-0">
                 <h3 class="text-base font-semibold text-gray-900">Covenants by Product Program</h3>
                 <p class="text-sm font-medium text-gray-500 mt-1">Distribution by Product_Program</p>
                 <p class="cov-insight-text" id="covInsightProductInsight"></p>
@@ -1093,7 +1103,7 @@
                 <svg class="size-5" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path fill-rule="evenodd" clip-rule="evenodd" d="M9.85954 4.0835C9.5834 4.0835 9.35954 4.30735 9.35954 4.5835V15.4161C9.35954 15.6922 9.5834 15.9161 9.85954 15.9161H10.1373C10.4135 15.9161 10.6373 15.6922 10.6373 15.4161V4.5835C10.6373 4.30735 10.4135 4.0835 10.1373 4.0835H9.85954ZM7.85954 4.5835C7.85954 3.47893 8.75497 2.5835 9.85954 2.5835H10.1373C11.2419 2.5835 12.1373 3.47893 12.1373 4.5835V15.4161C12.1373 16.5206 11.2419 17.4161 10.1373 17.4161H9.85954C8.75497 17.4161 7.85954 16.5206 7.85954 15.4161V4.5835ZM4.58203 8.9598C4.30589 8.9598 4.08203 9.18366 4.08203 9.4598V15.4168C4.08203 15.693 4.30589 15.9168 4.58203 15.9168H4.85981C5.13595 15.9168 5.35981 15.693 5.35981 15.4168V9.4598C5.35981 9.18366 5.13595 8.9598 4.85981 8.9598H4.58203ZM2.58203 9.4598C2.58203 8.35523 3.47746 7.4598 4.58203 7.4598H4.85981C5.96438 7.4598 6.85981 8.35523 6.85981 9.4598V15.4168C6.85981 16.5214 5.96438 17.4168 4.85981 17.4168H4.58203C3.47746 17.4168 2.58203 16.5214 2.58203 15.4168V9.4598ZM14.637 12.435C14.637 12.1589 14.8609 11.935 15.137 11.935H15.4148C15.691 11.935 15.9148 12.1589 15.9148 12.435V15.4168C15.9148 15.693 15.691 15.9168 15.4148 15.9168H15.137C14.8609 15.9168 14.637 15.693 14.637 15.4168V12.435ZM15.137 10.435C14.0325 10.435 13.137 11.3304 13.137 12.435V15.4168C13.137 16.5214 14.0325 17.4168 15.137 17.4168H15.4148C16.5194 17.4168 17.4148 16.5214 17.4148 15.4168V12.435C17.4148 11.3304 16.5194 10.435 15.4148 10.435H15.137Z" fill="currentColor"/>
                 </svg>
-                Insights
+                <span id="insightsTabLabel">Insights</span>
               </button>
             </nav>
           </div>
