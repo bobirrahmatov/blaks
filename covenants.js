@@ -405,6 +405,32 @@
         return String(raw || "").trim(); // keep original if unknown
       }
 
+      function covenantRowRegion(row) {
+        const region = String((row && row.Region) || "")
+          .trim()
+          .toUpperCase();
+        return region || "UNSPECIFIED";
+      }
+
+      // Known Past Due Category only. Blank or unrecognized values are excluded
+      // from Action Needed, the Past Due donut, and Total Past Dues.
+      function covenantPastDueDisplayBucket(row) {
+        const category = normalizePastDueCategoryValue(
+          row && row.Past_Due_Category
+        );
+        if (category === ">90 Days" || category === "90+ Days") return ">90 Days";
+        if (category === "61-90 Days" || category === "46-60 Days")
+          return "46-90 Days";
+        if (
+          category === "0-30 Days" ||
+          category === "31-45 Days" ||
+          category === "1-45 Days"
+        ) {
+          return "1-45 Days";
+        }
+        return null;
+      }
+
       function isCovenantPastDue(row) {
         return (
           normalizeComingDuePastDueStatus(row && row.Coming_Due_Past_Due) ===
@@ -457,8 +483,8 @@
       }
 
       function isCovenantActionNeeded(row) {
-        // Action Needed = Past Due only (Coming Due / Past Due = Past Due)
-        return isCovenantPastDue(row);
+        // Past Due with a recognized Past Due Category
+        return isCovenantPastDue(row) && !!covenantPastDueDisplayBucket(row);
       }
 
       function getCovenant45DaysDate(row) {
@@ -559,6 +585,14 @@
         return comingDueDaysBucket(
           daysUntil == null ? null : Math.max(0, daysUntil)
         );
+      }
+
+      function comingDueDisplayBucket(row, asOf) {
+        const bucket = comingDueBucketForRow(row, asOf);
+        if (bucket === "1-45 Days") return "1-45 Days";
+        if (bucket === "46-60 Days" || bucket === "61-90 Days") return "46-90 Days";
+        if (bucket === "90+ Days") return ">90 Days";
+        return null;
       }
 
       function buildComingDueBucketCounts(rows, asOf) {
@@ -667,7 +701,7 @@
         const asOf = getCovenantAsOfDate(dataSource);
 
         dataSource.forEach((row) => {
-          if (isCovenantPastDue(row)) pastDue++;
+          if (isCovenantActionNeeded(row)) pastDue++;
           else if (isCovenantComingDue(row, asOf)) comingDue++;
           const key = getCovenantRelationshipKey(row);
           if (key) rels.add(key);
@@ -8045,18 +8079,21 @@ async function fetchCovenantsFromConfluence() {
           },
         };
 
-        // Coming Due only shows next 30 days
+        const agingBucket = () => ({
+          count: 0,
+          regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
+          relationships: new Set(),
+        });
         const comingDueBuckets = {
-          "Next 3 Months": {
-            count: 0,
-            regionalBreakdown: { NAM: 0, LATAM: 0, EMEA: 0, APAC: 0 },
-            relationships: new Set(),
-          },
+          "1-45 Days": agingBucket(),
+          "46-90 Days": agingBucket(),
+          ">90 Days": agingBucket(),
         };
 
         let pastDueTotalAll = 0; // Total including 1-45 days (for breakdown)
         let pastDueTotalGauge = 0; // Total for gauge (46-90 + >90 only)
         let comingDueTotal = 0;
+        const asOf = getCovenantAsOfDate(dataSource);
 
         const addRel = (bucket, row) => {
           const key = getCovenantRelationshipKey(row);
@@ -8064,101 +8101,46 @@ async function fetchCovenantsFromConfluence() {
         };
 
         dataSource.forEach((row) => {
-          const status = normalizeComingDuePastDueStatus(row.Coming_Due_Past_Due);
-          const pastDueCategory = normalizePastDueCategoryValue(
-            row.Past_Due_Category
-          );
-          const region = String(row.Region || "")
-            .trim()
-            .toUpperCase();
+          const region = covenantRowRegion(row);
 
-          if (
-            selectedRegion &&
-            selectedRegion !== "all" &&
-            selectedRegion !== "multi" &&
-            region !== selectedRegion.toUpperCase()
-          )
-            return;
-
-          // Past Due — exact Excel "Coming Due / Past Due"
-          if (status === "Past Due") {
+          // Past Due — same population as Action Needed
+          if (isCovenantActionNeeded(row)) {
             pastDueTotalAll++;
-
-            if (pastDueTotalAll <= 3) {
-              console.log("DEBUG Past Due Record", pastDueTotalAll, {
-                status: row.Coming_Due_Past_Due,
-                category: row.Past_Due_Category,
-                categoryNorm: pastDueCategory,
-                region: region,
-              });
+            const bucketLabel = covenantPastDueDisplayBucket(row);
+            const bucket = pastDueBuckets[bucketLabel];
+            if (bucket) {
+              bucket.count++;
+              addRel(bucket, row);
+              if (bucket.regionalBreakdown[region] === undefined) {
+                bucket.regionalBreakdown[region] = 0;
+              }
+              bucket.regionalBreakdown[region]++;
             }
-
-            // Aging buckets ONLY from Excel Past Due Category (no Days fallback)
-            if (pastDueCategory === ">90 Days") {
-              pastDueBuckets[">90 Days"].count++;
-              pastDueGaugeBuckets[">90 Days"].count++;
-              addRel(pastDueBuckets[">90 Days"], row);
-              addRel(pastDueGaugeBuckets[">90 Days"], row);
-              if (
-                region &&
-                pastDueBuckets[">90 Days"].regionalBreakdown[region] !==
-                  undefined
-              ) {
-                pastDueBuckets[">90 Days"].regionalBreakdown[region]++;
-                pastDueGaugeBuckets[">90 Days"].regionalBreakdown[region]++;
+            if (bucketLabel === ">90 Days" || bucketLabel === "46-90 Days") {
+              const gauge = pastDueGaugeBuckets[bucketLabel];
+              if (gauge) {
+                gauge.count++;
+                addRel(gauge, row);
+                if (gauge.regionalBreakdown[region] !== undefined) {
+                  gauge.regionalBreakdown[region]++;
+                }
+                pastDueTotalGauge++;
               }
-              pastDueTotalGauge++;
-            } else if (
-              pastDueCategory === "61-90 Days" ||
-              pastDueCategory === "46-60 Days"
-            ) {
-              pastDueBuckets["46-90 Days"].count++;
-              pastDueGaugeBuckets["46-90 Days"].count++;
-              addRel(pastDueBuckets["46-90 Days"], row);
-              addRel(pastDueGaugeBuckets["46-90 Days"], row);
-              if (
-                region &&
-                pastDueBuckets["46-90 Days"].regionalBreakdown[region] !==
-                  undefined
-              ) {
-                pastDueBuckets["46-90 Days"].regionalBreakdown[region]++;
-                pastDueGaugeBuckets["46-90 Days"].regionalBreakdown[region]++;
-              }
-              pastDueTotalGauge++;
-            } else if (
-              pastDueCategory === "0-30 Days" ||
-              pastDueCategory === "31-45 Days" ||
-              pastDueCategory === "1-45 Days"
-            ) {
-              pastDueBuckets["1-45 Days"].count++;
-              addRel(pastDueBuckets["1-45 Days"], row);
-              if (
-                region &&
-                pastDueBuckets["1-45 Days"].regionalBreakdown[region] !==
-                  undefined
-              ) {
-                pastDueBuckets["1-45 Days"].regionalBreakdown[region]++;
-              }
-            } else if (pastDueTotalAll <= 5) {
-              console.warn(
-                'Unmatched Past_Due_Category (not counted in aging):',
-                row.Past_Due_Category
-              );
             }
           }
 
           // Coming Due — exact Excel status only
-          if (isCovenantComingDue(row)) {
-            comingDueBuckets["Next 3 Months"].count++;
-            addRel(comingDueBuckets["Next 3 Months"], row);
-            if (
-              region &&
-              comingDueBuckets["Next 3 Months"].regionalBreakdown[region] !==
-                undefined
-            ) {
-              comingDueBuckets["Next 3 Months"].regionalBreakdown[region]++;
-            }
+          if (isCovenantComingDue(row, asOf)) {
+            const bucketLabel = comingDueDisplayBucket(row, asOf);
+            const bucket = comingDueBuckets[bucketLabel];
+            if (!bucket) return;
             comingDueTotal++;
+            bucket.count++;
+            addRel(bucket, row);
+            if (bucket.regionalBreakdown[region] === undefined) {
+              bucket.regionalBreakdown[region] = 0;
+            }
+            bucket.regionalBreakdown[region]++;
           }
         });
 
@@ -8221,6 +8203,7 @@ async function fetchCovenantsFromConfluence() {
 
         currentCovenantData.comingDue = {
           count: comingDueTotal,
+          totalAll: comingDueTotal,
           categories: comingDueCategories,
         };
 
@@ -8239,36 +8222,32 @@ async function fetchCovenantsFromConfluence() {
 
         let series, labels, colors, totalCount;
 
-        if (isPastDue) {
-          // For Past Due: Show ALL categories (1-45, 46-90, >90) with matching colors
-          const categories = data.categories || [];
-          // Color mapping for each category
-          const colorMap = {
-            "1-45 Days": "#dde9ff",
-            "46-90 Days": "#7592ff",
-            ">90 Days": "#3641f5",
-          };
-          // Filter out categories with zero count
-          const filteredCategories = categories.filter((cat) => cat.count > 0);
-          series = filteredCategories.map((cat) => cat.count);
-          labels = filteredCategories.map((cat) => cat.label);
-          colors = filteredCategories.map(
-            (cat) => colorMap[cat.label] || "#7592ff"
-          );
-          totalCount = data.totalAll || data.count;
-        } else {
-          // For Coming Due: Show next 30 days (only if count > 0)
-          if (data.count > 0) {
-            series = [data.count];
-            labels = ["Next 3 Months"];
-            colors = ["#10B981"]; // Keep green for Coming Due
-          } else {
-            series = [];
-            labels = [];
-            colors = [];
-          }
-          totalCount = data.count;
-        }
+        const categories = data.categories || [];
+        const colorMap = isPastDue
+          ? {
+              "1-45 Days": "#dde9ff",
+              "46-90 Days": "#7592ff",
+              ">90 Days": "#3641f5",
+            }
+          : {
+              "1-45 Days": "#bbf7d0",
+              "46-90 Days": "#22c55e",
+              ">90 Days": "#15803d",
+            };
+        const bucketOrder = ["1-45 Days", "46-90 Days", ">90 Days"];
+        const byLabel = {};
+        categories.forEach((cat) => {
+          byLabel[cat.label] = cat;
+        });
+        const displayCategories = bucketOrder.map(
+          (label) => byLabel[label] || { label: label, count: 0 }
+        );
+        series = displayCategories.map((cat) => cat.count || 0);
+        labels = displayCategories.map((cat) => cat.label);
+        colors = displayCategories.map(
+          (cat) => colorMap[cat.label] || (isPastDue ? "#7592ff" : "#22c55e")
+        );
+        totalCount = data.totalAll != null ? data.totalAll : data.count;
 
         // Handle empty data - show centered empty state on the full host
         if (series.length === 0 || totalCount === 0) {
@@ -8386,7 +8365,7 @@ async function fetchCovenantsFromConfluence() {
                 title: label,
                 subtitle: isPastDue
                   ? "Covenants past their due date"
-                  : "Covenants due in the next 30 days",
+                  : "Days until Covenant Due Date, next 3 months",
                 count,
                 total: totalCount,
                 relationships:
@@ -8458,7 +8437,6 @@ async function fetchCovenantsFromConfluence() {
         for (let i = 0; i < labels.length; i++) {
           const color = colors[i] || "#3641f5";
           const count = series[i] || 0;
-          if (!count) continue;
 
           legendHTML += `
                     <div class="flex flex-col items-center gap-2">
@@ -8514,265 +8492,155 @@ async function fetchCovenantsFromConfluence() {
 
         // Update table headers
         if (headerEl) {
-          if (isPastDue) {
-            headerEl.innerHTML = `
+          headerEl.innerHTML = `
                         <th class="px-3 py-3 text-xs font-semibold text-gray-700 tracking-wider text-left">Region</th>
                         <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">1-45 Days</th>
                         <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">46-90 Days</th>
                         <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">&gt;90 Days</th>
-                        <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">Total Past Dues</th>
+                        <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">${isPastDue ? "Total Past Dues" : "Total Coming Due"}</th>
                         <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">Total Covenants</th>
                         <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">% of Total</th>
                     `;
-          } else {
-            headerEl.innerHTML = `
-                        <th class="px-3 py-3 text-xs font-semibold text-gray-700 tracking-wider text-left">Region</th>
-                        <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">Coming Due</th>
-                        <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">Total Covenants</th>
-                        <th class="px-2 py-3 text-xs font-semibold text-gray-700 tracking-wider text-center">% of Total</th>
-                    `;
-          }
         }
 
-        // Calculate regional distribution
         const dataSource =
           typeof getCovenantPageDataSource === "function" && covenantsData.length > 0
             ? getCovenantPageDataSource()
             : covenantsData.length > 0
             ? covenantsData
             : portfolioData;
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
 
-        const regions = ["APAC", "EMEA", "NAM", "LATAM"];
         const regionalData = {};
-        const regionPopulation = {}; // Total covenants per region (no status filter)
+        const regionPopulation = {};
+        const ensureRegion = (region) => {
+          if (!regionalData[region]) {
+            regionalData[region] = {
+              "1-45": 0,
+              "46-90": 0,
+              ">90": 0,
+              coming145: 0,
+              coming4690: 0,
+              coming90: 0,
+            };
+            regionPopulation[region] = 0;
+          }
+        };
 
-        regions.forEach((region) => {
-          regionalData[region] = {
-            "1-30": 0,
-            "31-45": 0,
-            "46-60": 0,
-            "61-90": 0,
-            ">90": 0,
-            comingDue: 0,
-          };
-          regionPopulation[region] = 0;
-        });
-
-        // FIRST PASS: Count total covenants per region (Population - no status filter)
-        let totalPopulation = 0;
-
+        const asOf = getCovenantAsOfDate(dataSource);
         dataSource.forEach((row) => {
-          const region = String(row.Region || "")
-            .trim()
-            .toUpperCase();
-
-          if (!regions.includes(region)) return;
-
-          // Apply region filter only for legacy single-select (multi already applied in getCovenantPageDataSource)
-          if (
-            selectedRegion &&
-            selectedRegion !== "all" &&
-            selectedRegion !== "multi" &&
-            region !== selectedRegion.toUpperCase()
-          )
-            return;
-
+          const region = covenantRowRegion(row);
+          ensureRegion(region);
           regionPopulation[region]++;
-          totalPopulation++;
-        });
-
-        // SECOND PASS: Count by status categories using dataLoader fields
-        let regionalDebugCount = 0;
-        dataSource.forEach((row) => {
-          // Use exact field names from dataLoader export
-          const status = normalizeComingDuePastDueStatus(row.Coming_Due_Past_Due);
-          const region = String(row.Region || "")
-            .trim()
-            .toUpperCase();
-          const pastDueCategory = normalizePastDueCategoryValue(
-            row.Past_Due_Category
-          );
-
-          if (!regions.includes(region)) return;
-
-          if (
-            selectedRegion &&
-            selectedRegion !== "all" &&
-            selectedRegion !== "multi" &&
-            region !== selectedRegion.toUpperCase()
-          )
-            return;
-
-          if (status === "Past Due") {
-            regionalDebugCount++;
-
-            // Debug: Log first few regional past due records
-            if (regionalDebugCount <= 3) {
-              console.log(
-                `DEBUG Regional Past Due Record ${regionalDebugCount}:`,
-                {
-                  status: row.Coming_Due_Past_Due,
-                  category: row.Past_Due_Category,
-                  categoryTrimmed: pastDueCategory,
-                  region: region,
-                }
-              );
-            }
-
-            if (pastDueCategory === ">90 Days") {
-              regionalData[region][">90"]++;
-            } else if (pastDueCategory === "61-90 Days") {
-              regionalData[region]["61-90"]++;
-            } else if (pastDueCategory === "46-60 Days") {
-              regionalData[region]["46-60"]++;
-            } else if (pastDueCategory === "31-45 Days") {
-              regionalData[region]["31-45"]++;
-            } else if (
-              pastDueCategory === "0-30 Days" ||
-              pastDueCategory === "1-45 Days"
-            ) {
-              regionalData[region]["1-30"]++;
-            } else if (regionalDebugCount <= 5) {
-              console.warn(
-                "Regional: Unmatched Past_Due_Category:",
-                row.Past_Due_Category
-              );
-            }
-          }
-
-          if (status === "Coming Due") {
-            regionalData[region]["comingDue"]++;
+          if (isCovenantActionNeeded(row)) {
+            const bucket = covenantPastDueDisplayBucket(row);
+            if (bucket === "1-45 Days") regionalData[region]["1-45"]++;
+            else if (bucket === "46-90 Days") regionalData[region]["46-90"]++;
+            else if (bucket === ">90 Days") regionalData[region][">90"]++;
+          } else if (isCovenantComingDue(row, asOf)) {
+            const bucket = comingDueDisplayBucket(row, asOf);
+            if (bucket === "1-45 Days") regionalData[region].coming145++;
+            else if (bucket === "46-90 Days") regionalData[region].coming4690++;
+            else if (bucket === ">90 Days") regionalData[region].coming90++;
           }
         });
 
-        // Calculate totals for percentage calculation
-        let grandTotalPastDue = 0;
-        let grandTotalComingDue = 0;
-
-        regions.forEach((region) => {
-          const pastDueCount =
-            regionalData[region]["1-30"] +
-            regionalData[region]["31-45"] +
-            regionalData[region]["46-60"] +
-            regionalData[region]["61-90"] +
-            regionalData[region][">90"];
-          grandTotalPastDue += pastDueCount;
-          grandTotalComingDue += regionalData[region]["comingDue"];
+        const preferred = ["APAC", "EMEA", "NAM", "LATAM"];
+        const regions = Object.keys(regionalData).sort((a, b) => {
+          const ai = preferred.indexOf(a);
+          const bi = preferred.indexOf(b);
+          if (a === "UNSPECIFIED") return 1;
+          if (b === "UNSPECIFIED") return -1;
+          if (ai !== -1 || bi !== -1) {
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+          }
+          return a.localeCompare(b);
         });
 
-        const grandTotal = grandTotalPastDue + grandTotalComingDue;
-
-        // Build table rows - only for regions that have data
-        let html = "";
         let total145 = 0;
         let total4690 = 0;
         let totalOver90 = 0;
-        let totalComingDue = 0;
+        let coming145 = 0;
+        let coming4690 = 0;
+        let coming90 = 0;
+        let totalPopulation = 0;
+        regions.forEach((region) => {
+          total145 += regionalData[region]["1-45"];
+          total4690 += regionalData[region]["46-90"];
+          totalOver90 += regionalData[region][">90"];
+          coming145 += regionalData[region].coming145;
+          coming4690 += regionalData[region].coming4690;
+          coming90 += regionalData[region].coming90;
+          totalPopulation += regionPopulation[region];
+        });
+        const totalPastDue = total145 + total4690 + totalOver90;
+        const totalComingDue = coming145 + coming4690 + coming90;
 
-        // Filter regions to only include those with population > 0
         const regionsWithData = regions.filter(
           (region) => regionPopulation[region] > 0
         );
-
-        const viewTotal = isPastDue ? grandTotalPastDue : grandTotalComingDue;
+        const viewTotal = isPastDue ? totalPastDue : totalComingDue;
         const regionalTitle = isPastDue
           ? "Past Due Covenants by Region"
           : "Coming Due Covenants by Region";
         if (regionsWithData.length === 0 || viewTotal === 0) {
-          tableBody.innerHTML = generateTableEmptyStateRow(
-            isPastDue ? 7 : 4,
-            regionalTitle
-          );
+          tableBody.innerHTML = generateTableEmptyStateRow(7, regionalTitle);
           window.covenantRegionalData = regionalData;
           return;
         }
 
+        const regionLabel = (region) =>
+          region === "UNSPECIFIED" ? "Unspecified" : region;
+        let html = "";
         regionsWithData.forEach((region) => {
-          // Calculate combined columns
-          const count145 =
-            regionalData[region]["1-30"] + regionalData[region]["31-45"];
-          const count4690 =
-            regionalData[region]["46-60"] + regionalData[region]["61-90"];
-          const countOver90 = regionalData[region][">90"];
-          const countComingDue = regionalData[region]["comingDue"];
-
-          total145 += count145;
-          total4690 += count4690;
-          totalOver90 += countOver90;
-          totalComingDue += countComingDue;
-
-          // Calculate region totals
-          const regionPastDueTotal = count145 + count4690 + countOver90;
-          // Population is the total unique covenants for this region (calculated in first pass, no status filter)
+          const count145 = isPastDue
+            ? regionalData[region]["1-45"]
+            : regionalData[region].coming145;
+          const count4690 = isPastDue
+            ? regionalData[region]["46-90"]
+            : regionalData[region].coming4690;
+          const countOver90 = isPastDue
+            ? regionalData[region][">90"]
+            : regionalData[region].coming90;
+          const regionStatusTotal = count145 + count4690 + countOver90;
           const regPopulation = regionPopulation[region];
-
-          if (isPastDue) {
-            // % of Total = Past Due Total for this region / Region's Total Covenants (region-specific)
-            const percentOfTotal =
-              regPopulation > 0
-                ? ((regionPastDueTotal / regPopulation) * 100).toFixed(1)
-                : 0;
-
-            html += `
+          const percentOfTotal =
+            regPopulation > 0
+              ? ((regionStatusTotal / regPopulation) * 100).toFixed(1)
+              : 0;
+          html += `
                         <tr class="border-b border-gray-100 hover:bg-gray-50">
-                            <td class="px-3 py-3 text-xs font-medium text-gray-700">${region}</td>
+                            <td class="px-3 py-3 text-xs font-medium text-gray-700">${regionLabel(region)}</td>
                             <td class="px-2 py-3 text-xs text-gray-700 text-center font-semibold">${count145}</td>
                             <td class="px-2 py-3 text-xs text-gray-700 text-center font-semibold">${count4690}</td>
                             <td class="px-2 py-3 text-xs text-gray-700 text-center font-semibold">${countOver90}</td>
-                            <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">${regionPastDueTotal}</td>
+                            <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">${regionStatusTotal}</td>
                             <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">${regPopulation}</td>
                             <td class="px-2 py-3 text-xs text-gray-900 text-center font-semibold">${percentOfTotal}%</td>
                         </tr>
                     `;
-          } else {
-            // % of Total = Coming Due for this region / Total Coming Due (across all regions)
-            const percentOfTotal =
-              totalComingDue > 0
-                ? ((countComingDue / totalComingDue) * 100).toFixed(1)
-                : 0;
-
-            html += `
-                        <tr class="border-b border-gray-100 hover:bg-gray-50">
-                            <td class="px-3 py-3 text-xs font-medium text-gray-700">${region}</td>
-                            <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">${countComingDue}</td>
-                            <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">${regPopulation}</td>
-                            <td class="px-2 py-3 text-xs text-gray-900 text-center font-semibold">${percentOfTotal}%</td>
-                        </tr>
-                    `;
-          }
         });
 
-        // Add total row
-        const totalPastDue = total145 + total4690 + totalOver90;
-
-        if (isPastDue) {
-          const totalPercentOfTotal =
-            totalPopulation > 0
-              ? ((totalPastDue / totalPopulation) * 100).toFixed(1)
-              : 0;
-          html += `
+        const foot145 = isPastDue ? total145 : coming145;
+        const foot4690 = isPastDue ? total4690 : coming4690;
+        const foot90 = isPastDue ? totalOver90 : coming90;
+        const footStatus = foot145 + foot4690 + foot90;
+        const totalPercentOfTotal =
+          totalPopulation > 0
+            ? ((footStatus / totalPopulation) * 100).toFixed(1)
+            : 0;
+        html += `
                     <tr class="bg-gray-50 font-bold border-t-2 border-gray-200">
                         <td class="px-3 py-3 text-xs text-gray-900">Total</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${total145}</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${total4690}</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${totalOver90}</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${totalPastDue}</td>
+                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${foot145}</td>
+                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${foot4690}</td>
+                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${foot90}</td>
+                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${footStatus}</td>
                         <td class="px-2 py-3 text-xs text-gray-900 text-center">${totalPopulation}</td>
                         <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">${totalPercentOfTotal}%</td>
                     </tr>
                 `;
-        } else {
-          html += `
-                    <tr class="bg-gray-50 font-bold border-t-2 border-gray-200">
-                        <td class="px-3 py-3 text-xs text-gray-900">Total</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${totalComingDue}</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center">${totalPopulation}</td>
-                        <td class="px-2 py-3 text-xs text-gray-900 text-center font-bold">100%</td>
-                    </tr>
-                `;
-        }
 
         tableBody.innerHTML = html;
 
